@@ -4,6 +4,7 @@ os.environ['OMP_NUM_THREADS'] = '1'
 import geemap
 import webbrowser
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt 
 
 def load_singapore_boundary():
@@ -42,6 +43,24 @@ def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
 
     return arr
 
+def normalize_list_zscore(lst_array):
+    mean_lst = np.nanmean(lst_array)
+    std_lst = np.nanstd(lst_array)
+
+    z_scores = (lst_array - mean_lst) / std_lst
+
+    print(f"LST Mean: {mean_lst:.2f} °C")
+    print(f"LST Std Dev: {std_lst:.2f} °C")
+
+    return z_scores
+
+def plot_z_scores(z_scores):
+    plt.figure(figsize=(10, 6))
+    plt.imshow(z_scores, cmap='coolwarm', vmin=-3, vmax=3)
+    plt.colorbar(label='Z-score')
+    plt.title('Normalized LST (Z-scores) for Singapore')
+    plt.axis('off')
+    plt.show()
 
 def main():
     ee.Initialize(project='ee-alyshabm000')
@@ -77,6 +96,10 @@ def main():
     
     #Convert to numpy array
     lst_array = lst_to_numpy(lst_image, singapore_boundary)
+
+    #normalize zscore
+    z_scores = normalize_list_zscore(lst_array)
+    plot_z_scores(z_scores)
 
 
 if __name__ == "__main__":
