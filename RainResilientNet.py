@@ -6,8 +6,14 @@ import webbrowser
 import pandas as pd
 import matplotlib.pyplot as plt 
 
+def load_singapore_boundary():
+    return ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level1") \
+        .filter(ee.Filter.eq('ADM0_NAME', 'Singapore')) \
+        .geometry()
+
+
 #MODIS11A2 for Land Surface Temperature (LST) 8-day avg 2024 till PRESENT
-def load_lst(start_date='2024-01-01', end_date='2025-04-20'):
+def load_lst(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'):
 
     #load modis
     collection = ee.ImageCollection("MODIS/061/MOD11A2") \
@@ -22,19 +28,32 @@ def load_lst(start_date='2024-01-01', end_date='2025-04-20'):
         .multiply(0.02).subtract(273.15) \
         .rename('LST')
 
-    return lst
-        
+    return lst.clip(singapore_boundary)
+
+def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
+    arr = geemap.ee_to_numpy(
+        ee_object=lst_ee,
+        region=singapore_boundary,
+        scale=scale
+    )
+
+    if arr.ndim == 3:
+        arr = arr[:, :, 0]
+
+    return arr
+
 
 def main():
     ee.Initialize(project='ee-alyshabm000')
 
     #load sg boundary
-    singapore_boundary = ee.FeatureCollection( "FAO/GAUL_SIMPLIFIED_500m/2015/level0") \
-    .filter(ee.Filter.eq('ADM0_NAME', 'Singapore')).geometry()
+    singapore_boundary = load_singapore_boundary()
+    '''singapore_boundary = ee.FeatureCollection( "FAO/GAUL_SIMPLIFIED_500m/2015/level0") \
+    .filter(ee.Filter.eq('ADM0_NAME', 'Singapore')).geometry()'''
 
     #Load LST image to sg boundary
-    lst_image = load_lst()
-    lst_image = lst_image.clip(singapore_boundary)
+    lst_image = load_lst(singapore_boundary)
+    #lst_image = lst_image.clip(singapore_boundary)
 
     #Loading geemap 
     Map = geemap.Map()
@@ -51,22 +70,13 @@ def main():
     
 
     #savemap to html
-    html_file = "lst_map.html"
+    '''html_file = "lst_map.html"
     Map.to_html(html_file)
     print(f"Map has been saved to {html_file}.")
-    webbrowser.open(html_file)
+    webbrowser.open(html_file)'''
     
-    #exporting lst to geotiff
-    geemap.ee_export_image_to_drive(
-        image=lst_image,
-        description='Singapore_LST',
-        folder='earthengine',
-        fileNamePrefix='SG_LST_2024',
-        region=singapore_boundary,
-        scale=1000,    # 1km MODIS native resolution
-        crs='EPSG:4326',   # Standard lat/lon CRS
-        maxPixels=1e13
-)
+    #Convert to numpy array
+    lst_array = lst_to_numpy(lst_image, singapore_boundary)
 
 
 if __name__ == "__main__":
