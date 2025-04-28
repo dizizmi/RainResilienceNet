@@ -55,6 +55,18 @@ def main():
     Map.to_html(html_file)
     print(f"Map has been saved to {html_file}.")
     webbrowser.open(html_file)
+    
+    #exporting lst to geotiff
+    geemap.ee_export_image_to_drive(
+        image=lst_image,
+        description='Singapore_LST',
+        folder='earthengine',
+        fileNamePrefix='SG_LST_2024',
+        region=singapore_boundary,
+        scale=1000,    # 1km MODIS native resolution
+        crs='EPSG:4326',   # Standard lat/lon CRS
+        maxPixels=1e13
+)
 
 
 if __name__ == "__main__":
