@@ -6,6 +6,9 @@ import webbrowser
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt 
+import requests 
+from datetime import datetime, timedelta
+import time
 
 def load_singapore_boundary():
     return ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level1") \
@@ -54,13 +57,42 @@ def normalize_list_zscore(lst_array):
 
     return z_scores
 
-def plot_z_scores(z_scores):
+'''def plot_z_scores(z_scores):
     plt.figure(figsize=(10, 6))
     plt.imshow(z_scores, cmap='coolwarm', vmin=-3, vmax=3)
     plt.colorbar(label='Z-score')
     plt.title('Normalized LST (Z-scores) for Singapore')
     plt.axis('off')
-    plt.show()
+    plt.show()  
+'''
+def detect_hotspots(z_scores, threshold=1.5):
+    '''so zscore -3 to 3, if > 2 then it is hotter, less than 2 is 'cooler' 
+        now binary mask 0 to 1, 1 hotspot, 0 is normal 
+        set threshold to 1 since it is 0% for 2
+    '''
+    hotspots = np.where(z_scores > threshold, 1, 0)
+
+    hotspot_percent = np.sum(hotspots) / hotspots.size * 100
+    print(f"Detected hotspot {hotspot_percent:.2f}% of Singapore.")
+
+    return hotspots
+
+#NEA rainfall and weather station coordinates in 120H (5 DAYS) till PRESENT
+def load_rainfall(hours=120):
+    base_url = "https://api.data.gov.sg/v1/environment/rainfall"
+    
+    #first fetch station metadata
+    station_meta_resp = requests.get(base_url)
+    if station_meta_resp.status_code != 200:
+        raise Exception("Could not load station metadata")
+    
+    station_meta = station_meta_resp.json()['metadata']['stations']
+    station_dict = {s['id']: {
+        'name': s['name'],
+        'lat': s['location']['latitude'],
+        'lon': s['location']['longitude']
+    } for s in station_meta}
+
 
 def main():
     ee.Initialize(project='ee-alyshabm000')
@@ -92,7 +124,7 @@ def main():
     '''html_file = "lst_map.html"
     Map.to_html(html_file)
     print(f"Map has been saved to {html_file}.")
-    webbrowser.open(html_file)'''
+    webbrowser.open(html_file)
     
     #Convert to numpy array
     lst_array = lst_to_numpy(lst_image, singapore_boundary)
@@ -100,6 +132,15 @@ def main():
     #normalize zscore
     z_scores = normalize_list_zscore(lst_array)
     plot_z_scores(z_scores)
+
+    #detect hotspots
+    hotspot_mask = detect_hotspots(z_scores)
+    plt.figure(figsize=(10, 6))
+    plt.imshow(hotspot_mask, cmap='hot')
+    plt.title('Detected hotspots')
+    plt.axis('off')
+    plt.show()'''
+
 
 
 if __name__ == "__main__":
