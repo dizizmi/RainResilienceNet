@@ -78,7 +78,7 @@ def detect_hotspots(z_scores, threshold=1.5):
     return hotspots
 
 #NEA rainfall and weather station coordinates in 120H (5 DAYS) till PRESENT
-def load_rainfall(hours=120):
+def load_rainfall(hours=240):
     base_url = "https://api.data.gov.sg/v1/environment/rainfall"
     
     #first fetch station metadata
@@ -92,6 +92,39 @@ def load_rainfall(hours=120):
         'lat': s['location']['latitude'],
         'lon': s['location']['longitude']
     } for s in station_meta}
+
+    rainfall_records = []
+
+    #get rainfall data
+    for i in range(hours):
+        timestamp = (datetime.utcnow() - timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%S")
+
+        try:
+            r = requests.get(base_url, params={"date_time": timestamp})
+            if r.status_code == 200:
+                data = r.json()
+                readings = data['items'][0]['readings']
+                for reading in readings:
+                    sid = reading['station_id']
+                    value = reading['value']
+                    info = station_dict.get(sid)
+
+                    if info:
+                        rainfall_records.append({
+                            'timestamp': timestamp,
+                            'station_id': sid,
+                            'station_name': info['name'],
+                            'lat': info['lat'],
+                            'lon': info['lon'],
+                            'rainfall_mm': value
+                        })
+        except Exception as e:
+            print(f"Error at {timestamp}: {e}")
+
+        time.sleep(0.1)  # avoid overloading API   
+    return pd.DataFrame(rainfall_records)
+
+    
 
 
 def main():
@@ -140,6 +173,14 @@ def main():
     plt.title('Detected hotspots')
     plt.axis('off')
     plt.show()'''
+
+    #get rainfall data
+    rainfall_120h_df = load_rainfall(240)
+
+    rainfall_120h_df['timestamp'] = pd.to_datetime(rainfall_120h_df['timestamp'])
+    rainfall_120h_df.sort_values(by=['station_id', 'timestamp'], inplace=True)
+
+    print(rainfall_120h_df.head())
 
 
 
