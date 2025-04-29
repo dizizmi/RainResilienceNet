@@ -45,7 +45,7 @@ def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
         arr = arr[:, :, 0]
 
     return arr
-
+#zscoring for LST
 def normalize_list_zscore(lst_array):
     mean_lst = np.nanmean(lst_array)
     std_lst = np.nanstd(lst_array)
@@ -65,6 +65,7 @@ def normalize_list_zscore(lst_array):
     plt.axis('off')
     plt.show()  
 '''
+#binary mask from zcsoring for LST
 def detect_hotspots(z_scores, threshold=1.5):
     '''so zscore -3 to 3, if > 2 then it is hotter, less than 2 is 'cooler' 
         now binary mask 0 to 1, 1 hotspot, 0 is normal 
@@ -124,7 +125,18 @@ def load_rainfall(hours=240):
         time.sleep(0.1)  # avoid overloading API   
     return pd.DataFrame(rainfall_records)
 
-    
+#zcoring for rainfall data
+'''convert latitude and longt to row col for raster array for pixel coordinates'''
+def rainfall_to_pixel(lat, lon, bounds, array_shape):
+
+    lat_min, lat_max, lon_min, lon_max = bounds
+    height, width = array_shape
+
+    row = int((lat_max - lat) / (lat_max - lat_min) * height)
+    col = int((lon - lon_min) / (lon_max - lon_min) * width)
+    return row, col
+
+
 
 
 def main():
@@ -180,7 +192,15 @@ def main():
     rainfall_120h_df['timestamp'] = pd.to_datetime(rainfall_120h_df['timestamp'])
     rainfall_120h_df.sort_values(by=['station_id', 'timestamp'], inplace=True)
 
-    print(rainfall_120h_df.head())
+    rainfall_120h_df.head()
+
+    #sum the total 5 day rainfall (mm) per station
+    rainfall_summary = rainfall_120h_df.groupby(['station_id', 'station_name', 'lat', 'lon']) \
+        .agg(total_rainfall_mm=('rainfall_mm', 'sum')) \
+        .reset_index()
+    #sort it out HIGHEST rainfall 
+    rainfall_summary = rainfall_summary.sort_values(by='total_rainfall_mm', ascending=False)
+    print(rainfall_summary.head(10))
 
 
 
