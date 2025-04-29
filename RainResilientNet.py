@@ -78,7 +78,7 @@ def detect_hotspots(z_scores, threshold=1.5):
 
     return hotspots
 
-#NEA rainfall and weather station coordinates in 120H (5 DAYS) till PRESENT
+#NEA rainfall and weather station coordinates in 120H (5 DAYS) till PRESENT, thinking if it should be shorter...? ~3h-24?
 def load_rainfall(hours=240):
     base_url = "https://api.data.gov.sg/v1/environment/rainfall"
     
@@ -125,16 +125,39 @@ def load_rainfall(hours=240):
         time.sleep(0.1)  # avoid overloading API   
     return pd.DataFrame(rainfall_records)
 
-#zcoring for rainfall data
-'''convert latitude and longt to row col for raster array for pixel coordinates'''
-def rainfall_to_pixel(lat, lon, bounds, array_shape):
+def rainfall_raster(latlons, z_scores, hotspot_mask, bounds):
 
-    lat_min, lat_max, lon_min, lon_max = bounds
-    height, width = array_shape
+    #zcoring for rainfall data
+    '''convert latitude and longt to row col for raster array for pixel coordinates'''
+    def rainfall_to_pixel(lat, lon, bounds, array_shape):
 
-    row = int((lat_max - lat) / (lat_max - lat_min) * height)
-    col = int((lon - lon_min) / (lon_max - lon_min) * width)
-    return row, col
+        lat_min, lat_max, lon_min, lon_max = bounds
+        height, width = array_shape
+
+        row = int((lat_max - lat) / (lat_max - lat_min) * height)
+        col = int((lon - lon_min) / (lon_max - lon_min) * width)
+        return row, col
+    
+    samples = []
+
+    for lat, lon in latlons:
+        row, col = rainfall_to_pixel(lat, lon, bounds, z_scores.shape)
+        if 0 <= row < z_scores.shape[0] and 0 <= col < z_scores.shape[1]:
+            z_val = z_scores[row, col]
+            hotspot = hotspot_mask[row, col]
+
+        else:
+            z_val = np.nan
+            hotspot = np.nan
+
+        samples.append({
+            'lat': lat,
+            'lon': lon,
+            'z_score': z_val,
+            'hotspot': hotspot
+        })
+    
+    return samples
 
 
 
@@ -170,22 +193,22 @@ def main():
     Map.to_html(html_file)
     print(f"Map has been saved to {html_file}.")
     webbrowser.open(html_file)
-    
+    '''
     #Convert to numpy array
     lst_array = lst_to_numpy(lst_image, singapore_boundary)
 
     #normalize zscore
     z_scores = normalize_list_zscore(lst_array)
-    plot_z_scores(z_scores)
+   # plot_z_scores(z_scores)
 
     #detect hotspots
     hotspot_mask = detect_hotspots(z_scores)
-    plt.figure(figsize=(10, 6))
+    ''' plt.figure(figsize=(10, 6))
     plt.imshow(hotspot_mask, cmap='hot')
     plt.title('Detected hotspots')
     plt.axis('off')
-    plt.show()'''
-
+    plt.show()
+    '''
     #get rainfall data
     rainfall_120h_df = load_rainfall(240)
 
@@ -200,8 +223,19 @@ def main():
         .reset_index()
     #sort it out HIGHEST rainfall 
     rainfall_summary = rainfall_summary.sort_values(by='total_rainfall_mm', ascending=False)
-    print(rainfall_summary.head(10))
+   # print(rainfall_summary.head(10))
 
+    #list of lat and lon
+    latlon_list = list(zip(rainfall_summary['lat'], rainfall_summary['lon']))
+    bounds = (1.22, 1.48, 103.6, 104.0)
+    samples = rainfall_raster(latlon_list, z_scores, hotspot_mask, bounds)
+    sample_df = pd.DataFrame(samples)
+   
+    rainfall_summary['lst_zscore'] = sample_df['z_score']
+    rainfall_summary['in_hotspot'] = sample_df['hotspot']
+
+    print("\n📋 Final Rainfall & Heat Interaction Summary:")
+    print(rainfall_summary)
 
 
 if __name__ == "__main__":
