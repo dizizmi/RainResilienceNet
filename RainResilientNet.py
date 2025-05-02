@@ -79,7 +79,7 @@ def detect_hotspots(z_scores, threshold=1.5):
     return hotspots
 
 #NEA rainfall and weather station coordinates in 120H (5 DAYS) till PRESENT, thinking if it should be shorter...? ~3h-24?
-def load_rainfall(hours=240):
+def load_rainfall(hours=120):
     base_url = "https://api.data.gov.sg/v1/environment/rainfall"
     
     #first fetch station metadata
@@ -210,7 +210,7 @@ def main():
     plt.show()
     '''
     #get rainfall data
-    rainfall_120h_df = load_rainfall(240)
+    rainfall_120h_df = load_rainfall(120)
 
     rainfall_120h_df['timestamp'] = pd.to_datetime(rainfall_120h_df['timestamp'])
     rainfall_120h_df.sort_values(by=['station_id', 'timestamp'], inplace=True)
@@ -234,8 +234,31 @@ def main():
     rainfall_summary['lst_zscore'] = sample_df['z_score']
     rainfall_summary['in_hotspot'] = sample_df['hotspot']
 
-    print("\n📋 Final Rainfall & Heat Interaction Summary:")
-    print(rainfall_summary)
+    #print("\n📋 Final Rainfall & Heat Interaction Summary:")
+    #print(rainfall_summary)
+
+    #plotting
+    '''sns.set(style="whitegrid")
+
+    plt.figure(figsize=(10, 6))
+    sns.scatterplot(data=rainfall_summary,
+    x='lst_zscore',
+    y='total_rainfall_mm',
+    hue='in_hotspot',
+    palette={0: 'blue', 1: 'red'},
+    s=80)
+
+    plt.xlabel("LST Z-Score (Urban Heat Intensity)")
+    plt.ylabel("Total Rainfall (last 120h) [mm]")
+    plt.title("Rainfall vs Urban Heat Intensity at NEA Stations")
+    plt.axvline(x=1.5, color='gray', linestyle='--', label='Z = 1.5 Threshold')
+    plt.legend(title='In Hotspot')
+    plt.tight_layout()
+    print(plt.show())
+    '''
+
+
+
 
 
 if __name__ == "__main__":
