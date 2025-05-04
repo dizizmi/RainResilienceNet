@@ -9,6 +9,11 @@ import matplotlib.pyplot as plt
 import requests 
 from datetime import datetime, timedelta
 import time
+import seaborn as sns
+
+from xgboost import XGBRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
 
 def load_singapore_boundary():
     return ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level1") \
@@ -159,6 +164,70 @@ def rainfall_raster(latlons, z_scores, hotspot_mask, bounds):
     
     return samples
 
+def prepare_rainfall_data(rainfall_120h_df, z_scores, hotspot_mask, bounds):
+    rainfall_120h_df['timestamp'] = pd.to_datetime(rainfall_120h_df['timestamp'])
+    rainfall_120h_df.sort_values(by=['station_id', 'timestamp'], inplace=True)
+
+    # Summarize 5-day rainfall per station
+    rainfall_summary = rainfall_120h_df.groupby(['station_id', 'station_name', 'lat', 'lon']) \
+        .agg(total_rainfall_mm=('rainfall_mm', 'sum')) \
+        .reset_index()
+
+    latlon_list = list(zip(rainfall_summary['lat'], rainfall_summary['lon']))
+
+    samples = rainfall_raster(latlon_list, z_scores, hotspot_mask, bounds)
+    sample_df = pd.DataFrame(samples)
+
+    rainfall_summary['lst_zscore'] = sample_df['z_score']
+    rainfall_summary['in_hotspot'] = sample_df['hotspot']
+
+    return rainfall_summary
+
+
+#XGBoost regression model- test rainfall on urban heat
+def prepare_features(df):
+    df = df.dropna(subset=['lst_zscore', 'total_rainfall_mm'])
+
+
+    features = ['lst_zscore', 'in_hotspot', 'lat', 'lon']
+    X = df[features]
+    y = df['total_rainfall_mm']
+
+    return train_test_split(X, y, test_size=0.2, random_state=42)
+
+def train_evaluate_xgboost(X_train, X_test, y_train, y_test):
+    model = XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.1)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    r2 = r2_score(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+    print(f"XGBoost R² score: {r2:.3f}")
+    print(f"RMSE: {rmse:.2f} mm")
+
+    return model
+
+def plot_feature_importance(model, feature_names):
+    importances = model.feature_importances_
+
+    plt.figure(figsize=(8, 5))
+    sns.barplot(x=importances, y=feature_names, palette='viridis')
+    plt.title("XGBoost Feature Importance")
+    plt.xlabel("Importance")
+    plt.ylabel("Feature")
+    plt.tight_layout()
+    plt.show()
+
+def run_xgboost_pipeline(rainfall_summary):
+    print("Preparing features...")
+    X_train, X_test, y_train, y_test = prepare_features(rainfall_summary)
+
+    print("Training XGBoost...")
+    model = train_evaluate_xgboost(X_train, X_test, y_train, y_test)
+
+    print("Plotting feature importance...")
+    plot_feature_importance(model, X_train.columns)
 
 
 
@@ -211,7 +280,14 @@ def main():
     '''
     #get rainfall data
     rainfall_120h_df = load_rainfall(120)
-
+    bounds = (1.22, 1.48, 103.6, 104.0)
+    rainfall_summary = prepare_rainfall_data(
+        rainfall_120h_df,
+        z_scores,
+        hotspot_mask,
+        bounds
+    )   
+    '''
     rainfall_120h_df['timestamp'] = pd.to_datetime(rainfall_120h_df['timestamp'])
     rainfall_120h_df.sort_values(by=['station_id', 'timestamp'], inplace=True)
 
@@ -236,7 +312,7 @@ def main():
 
     #print("\n📋 Final Rainfall & Heat Interaction Summary:")
     #print(rainfall_summary)
-
+    '''
     #plotting
     '''sns.set(style="whitegrid")
 
@@ -257,7 +333,7 @@ def main():
     print(plt.show())
     '''
 
-
+    run_xgboost_pipeline(rainfall_summary)
 
 
 
