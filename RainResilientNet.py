@@ -287,32 +287,7 @@ def main():
         hotspot_mask,
         bounds
     )   
-    '''
-    rainfall_120h_df['timestamp'] = pd.to_datetime(rainfall_120h_df['timestamp'])
-    rainfall_120h_df.sort_values(by=['station_id', 'timestamp'], inplace=True)
-
-    rainfall_120h_df.head()
-
-    #sum the total 5 day rainfall (mm) per station
-    rainfall_summary = rainfall_120h_df.groupby(['station_id', 'station_name', 'lat', 'lon']) \
-        .agg(total_rainfall_mm=('rainfall_mm', 'sum')) \
-        .reset_index()
-    #sort it out HIGHEST rainfall 
-    rainfall_summary = rainfall_summary.sort_values(by='total_rainfall_mm', ascending=False)
-   # print(rainfall_summary.head(10))
-
-    #list of lat and lon
-    latlon_list = list(zip(rainfall_summary['lat'], rainfall_summary['lon']))
-    bounds = (1.22, 1.48, 103.6, 104.0)
-    samples = rainfall_raster(latlon_list, z_scores, hotspot_mask, bounds)
-    sample_df = pd.DataFrame(samples)
    
-    rainfall_summary['lst_zscore'] = sample_df['z_score']
-    rainfall_summary['in_hotspot'] = sample_df['hotspot']
-
-    #print("\n📋 Final Rainfall & Heat Interaction Summary:")
-    #print(rainfall_summary)
-    '''
     #plotting
     '''sns.set(style="whitegrid")
 
