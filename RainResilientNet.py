@@ -12,6 +12,7 @@ import time
 import seaborn as sns
 import geopandas as gpd
 import rasterio
+from skimage.transform import resize
 
 from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
@@ -56,6 +57,7 @@ def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'
 
     return ndvi.clip(singapore_boundary)
 
+#ASTER DEM v3 for elevation of singapore (1 granule of sg)
 def load_elevation(elev_path: str, normalize: bool = True):
     '''
     note: elev path is the path to the tiff file, boundary path is path to GEOjson to clip sg boundary, normalise between 0 to 1
@@ -71,6 +73,21 @@ def load_elevation(elev_path: str, normalize: bool = True):
 
     return elev_array
 
+#resample elevation to fit CNN
+def resample_elevation(elev_array, target_shape=(256,256)):
+    '''
+    note: elev_array is 2d elevation array, target shape is the height width of output
+    returnsn np.ndarray resampled elevation array
+    '''
+    elev_resampled  = resize(
+        elev_array,
+        target_shape,
+        mode='reflect',
+        anti_aliasing=True,
+        preserve_range=True
+
+    )
+    return elev_resampled
 
 '''
 #URA Land Plan 2019, load geoJSON file (WIP, not done w URA)
@@ -335,7 +352,8 @@ def main():
         elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
     )
 
-    print(f"Elevation Array Shape: {elev.shape}")
+    elev_resized = resample_elevation(elev, target_shape=(256, 256))
+    print(f"Elevation Array Shape: {elev_resized.shape}")
 
     #Loading geemap 
     Map = geemap.Map()
