@@ -10,6 +10,8 @@ import requests
 from datetime import datetime, timedelta
 import time
 import seaborn as sns
+import geopandas as gpd
+import rasterio
 
 from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
@@ -39,6 +41,84 @@ def load_lst(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20')
 
     return lst.clip(singapore_boundary)
 
+#MODIS13Q1 for NDVI 
+def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'):
+    collection = ee.ImageCollection("MODIS/061/MOD13Q1") \
+        .filterDate(start_date, end_date) 
+        
+    count = collection.size().getInfo()
+    if count == 0:
+        raise ValueError("No images found for the specified date range.")
+
+    ndvi = collection.mean() \
+        .select('NDVI') \
+        .rename('NDVI')
+
+    return ndvi.clip(singapore_boundary)
+
+def load_elevation(elev_path: str, normalize: bool = True):
+    '''
+    note: elev path is the path to the tiff file, boundary path is path to GEOjson to clip sg boundary, normalise between 0 to 1
+    returns np.ndarray the clipped and normalized
+    '''
+
+    with rasterio.open(elev_path) as src:
+       elev_array = src.read(1)
+
+    if normalize:
+        elev_array = (elev_array - np.nanmin(elev_array)) / (np.nanmax(elev_array) - np.nanmin(elev_array))
+        elev_array = np.nan_to_num(elev_array)
+
+    return elev_array
+
+
+'''
+#URA Land Plan 2019, load geoJSON file (WIP, not done w URA)
+def load_ura(ura_path):
+    
+    # Load the GeoJSON file
+    gdf = gpd.read_file(ura_path)
+
+    # Convert to GeoJSON format
+    geojson_str = gdf.to_json()
+
+    # Load the GeoJSON data into an Earth Engine FeatureCollection
+    feature_collection = geemap.geojson_to_ee(geojson_str)
+
+    return feature_collection
+
+def assign_ura_class():
+    #map the land use to codes
+    return {
+        'Residential': 1,
+        'Commercial': 2,
+        'Industrial': 3,
+        'Agricultural': 4,
+        'Park': 5,
+        'Waterbody': 6,
+        'Forest': 7,
+        'Other': 0
+    }
+
+def final_load(ura_fc):
+
+    ee_class_map = ee.Dictionary(assign_ura_class())
+
+    def assign_class(feature):
+        return feature.set('LU_CODE', ee_class_map.get(feature.get('LU_DESC'), 0))
+     
+  
+    return ura_fc.map(assign_class)
+
+def rasterize_land(ura_fc):
+    return ura_fc.reduceToImage(
+        properties=['LU_CODE'],
+        reducer=ee.Reducer.first()
+    ).rename('LandUse') 
+
+'''
+
+
 def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
     arr = geemap.ee_to_numpy(
         ee_object=lst_ee,
@@ -50,6 +130,7 @@ def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
         arr = arr[:, :, 0]
 
     return arr
+
 #zscoring for LST
 def normalize_list_zscore(lst_array):
     mean_lst = np.nanmean(lst_array)
@@ -183,7 +264,7 @@ def prepare_rainfall_data(rainfall_120h_df, z_scores, hotspot_mask, bounds):
 
     return rainfall_summary
 
-
+'''
 #XGBoost regression model- test rainfall on urban heat
 def prepare_features(df):
     df = df.dropna(subset=['lst_zscore', 'total_rainfall_mm'])
@@ -228,8 +309,7 @@ def run_xgboost_pipeline(rainfall_summary):
 
     print("Plotting feature importance...")
     plot_feature_importance(model, X_train.columns)
-
-
+'''
 
 def main():
     ee.Initialize(project='ee-alyshabm000')
@@ -243,6 +323,20 @@ def main():
     lst_image = load_lst(singapore_boundary)
     #lst_image = lst_image.clip(singapore_boundary)
 
+    '''#load URA
+    ura_fc = load_ura("MasterPlan2019LandUselayer.geojson")
+    ura_fc_mapped = map_land_use(ura_fc)
+    ura_raster = rasterize_land(ura_fc_mapped)
+
+    '''
+
+    #load elevation
+    elev = load_elevation(
+        elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
+    )
+
+    print(f"Elevation Array Shape: {elev.shape}")
+
     #Loading geemap 
     Map = geemap.Map()
     vis_params = {
@@ -255,6 +349,7 @@ def main():
     Map.centerObject(singapore_boundary, 10)
     Map.addLayer(singapore_boundary, {}, "Singapore Boundary")
     Map.addLayer(lst_image, vis_params, 'Singapore LST (°C)')
+    #Map.addLayer(ura_raster, {}, 'URA Land Use')
     
 
     #savemap to html
@@ -308,7 +403,7 @@ def main():
     print(plt.show())
     '''
 
-    run_xgboost_pipeline(rainfall_summary)
+    # run_xgboost_pipeline(rainfall_summary)
 
 
 
