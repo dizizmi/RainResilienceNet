@@ -42,6 +42,27 @@ def load_lst(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20')
 
     return lst.clip(singapore_boundary)
 
+def resample_lst(lst_array, target_shape=(256,256), normalize=True):
+    '''
+    note lst array is 2d array, target shape is heightwidth, normalize to 0-1 range
+    '''
+
+    lst_array = np.nan_to_num(lst_array)
+
+    #resize
+    lst_resized = resize(
+        lst_array,
+        target_shape,
+        preserve_range=True,
+        anti_aliasing=True
+    )
+
+    #normalize
+    if normalize:
+        lst_resized = (lst_resized - np.min(lst_resized)) / (np.max(lst_resized) - np.min(lst_resized))
+
+    return lst_resized
+
 #MODIS13Q1 for NDVI 
 def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'):
     collection = ee.ImageCollection("MODIS/061/MOD13Q1") \
@@ -56,6 +77,8 @@ def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'
         .rename('NDVI')
 
     return ndvi.clip(singapore_boundary)
+
+
 
 #ASTER DEM v3 for elevation of singapore (1 granule of sg)
 def load_elevation(elev_path: str, normalize: bool = True):
@@ -144,8 +167,8 @@ def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
     )
 
     if arr.ndim == 3:
-        arr = arr[:, :, 0]
-
+       arr = arr[:, :, 0]
+    
     return arr
 
 #zscoring for LST
@@ -281,6 +304,8 @@ def prepare_rainfall_data(rainfall_120h_df, z_scores, hotspot_mask, bounds):
 
     return rainfall_summary
 
+
+
 '''
 #XGBoost regression model- test rainfall on urban heat
 def prepare_features(df):
@@ -355,6 +380,10 @@ def main():
     elev_resized = resample_elevation(elev, target_shape=(256, 256))
     print(f"Elevation Array Shape: {elev_resized.shape}")
 
+    lst_array = lst_to_numpy(lst_image, singapore_boundary, scale=1000)
+    lst_cnn_ready = resample_lst(lst_array, target_shape=(256, 256))
+    print(f"LST array shape: {lst_cnn_ready.shape}")
+
     #Loading geemap 
     Map = geemap.Map()
     vis_params = {
@@ -423,7 +452,7 @@ def main():
 
     # run_xgboost_pipeline(rainfall_summary)
 
-
+    # stacked_tile = np.stack([lst_tile, ndvi_tile, elev_resized], axis=-1)
 
 if __name__ == "__main__":
     main()
