@@ -13,6 +13,7 @@ import seaborn as sns
 import geopandas as gpd
 import rasterio
 from skimage.transform import resize
+import json
 
 from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
@@ -129,21 +130,22 @@ def resample_elevation(elev_array, target_shape=(256,256)):
     )
     return elev_resampled
 
-'''
+
 #URA Land Plan 2019, load geoJSON file (WIP, not done w URA)
 def load_ura(ura_path):
     
-    # Load the GeoJSON file
     gdf = gpd.read_file(ura_path)
 
-    # Convert to GeoJSON format
     geojson_str = gdf.to_json()
 
-    # Load the GeoJSON data into an Earth Engine FeatureCollection
-    feature_collection = geemap.geojson_to_ee(geojson_str)
+    #got an error to that it is not in integers but strings so,
+    geojson_dict = json.loads(geojson_str)
+    feature_collection = geemap.geojson_to_ee(geojson_dict)
 
     return feature_collection
 
+'''
+#URA mapping to integer codes
 def assign_ura_class():
     #map the land use to codes
     return {
@@ -383,13 +385,6 @@ def main():
     lst_image = load_lst(singapore_boundary)
     #lst_image = lst_image.clip(singapore_boundary)
 
-    '''#load URA
-    ura_fc = load_ura("MasterPlan2019LandUselayer.geojson")
-    ura_fc_mapped = map_land_use(ura_fc)
-    ura_raster = rasterize_land(ura_fc_mapped)
-
-    '''
-
     #load elevation and resize 
     elev = load_elevation(
         elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
@@ -410,6 +405,19 @@ def main():
     ndvi_cnn_ready = resample_ndvi(ndvi_array, target_shape=(256, 256))
     print(f"NDVI array shape: {ndvi_cnn_ready.shape}")
 
+    #load URA
+    ura_path = "MasterPlan2019LandUselayer.geojson"
+    gdf = gpd.read_file(ura_path)
+
+    print(gdf.columns)
+    print(gdf["Description"].unique())
+
+
+    #ura_fc_mapped = map_land_use(ura_fc)
+    #ura_raster = rasterize_land(ura_fc_mapped)
+
+    '''
+
     #Loading geemap 
     Map = geemap.Map()
     vis_params = {
@@ -426,7 +434,9 @@ def main():
     
 
     #savemap to html
-    '''html_file = "lst_map.html"
+    '''
+    '''
+    html_file = "lst_map.html"
     Map.to_html(html_file)
     print(f"Map has been saved to {html_file}.")
     webbrowser.open(html_file)
