@@ -78,6 +78,23 @@ def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'
 
     return ndvi.clip(singapore_boundary)
 
+def resample_ndvi(ndvi_array, target_shape=(256,256), normalize=True):
+    ''' 
+    note: ndvi array is 2d array, target shape is heightwidth, normalize to 0-1 range
+    '''
+    ndvi_array = np.nan_to_num(ndvi_array)
+
+    ndvi_resized = resize(
+        ndvi_array,
+        target_shape,
+        preserve_range=True,
+        anti_aliasing=True
+    )
+
+    if normalize:
+        ndvi_resized = (ndvi_resized - np.min(ndvi_resized)) / (np.max(ndvi_resized) - np.min(ndvi_resized))
+
+    return ndvi_resized
 
 
 #ASTER DEM v3 for elevation of singapore (1 granule of sg)
@@ -158,6 +175,7 @@ def rasterize_land(ura_fc):
 
 '''
 
+#getting zscores for ML
 
 def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
     arr = geemap.ee_to_numpy(
@@ -361,7 +379,7 @@ def main():
     '''singapore_boundary = ee.FeatureCollection( "FAO/GAUL_SIMPLIFIED_500m/2015/level0") \
     .filter(ee.Filter.eq('ADM0_NAME', 'Singapore')).geometry()'''
 
-    #Load LST image to sg boundary
+    #load LST image to sg boundary
     lst_image = load_lst(singapore_boundary)
     #lst_image = lst_image.clip(singapore_boundary)
 
@@ -372,17 +390,25 @@ def main():
 
     '''
 
-    #load elevation
+    #load elevation and resize 
     elev = load_elevation(
         elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
     )
-
+    
     elev_resized = resample_elevation(elev, target_shape=(256, 256))
     print(f"Elevation Array Shape: {elev_resized.shape}")
 
+    #lst resize
     lst_array = lst_to_numpy(lst_image, singapore_boundary, scale=1000)
     lst_cnn_ready = resample_lst(lst_array, target_shape=(256, 256))
     print(f"LST array shape: {lst_cnn_ready.shape}")
+
+    #load ndvi and resize
+    ndvi_image = load_ndvi(singapore_boundary)
+
+    ndvi_array = lst_to_numpy(ndvi_image, singapore_boundary, scale=1000)
+    ndvi_cnn_ready = resample_ndvi(ndvi_array, target_shape=(256, 256))
+    print(f"NDVI array shape: {ndvi_cnn_ready.shape}")
 
     #Loading geemap 
     Map = geemap.Map()
