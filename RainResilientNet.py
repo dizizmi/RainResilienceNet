@@ -12,8 +12,13 @@ import time
 import seaborn as sns
 import geopandas as gpd
 import rasterio
+
+from rasterio.features import rasterize
 from skimage.transform import resize
 import json
+import re
+
+
 
 from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
@@ -107,12 +112,14 @@ def load_elevation(elev_path: str, normalize: bool = True):
 
     with rasterio.open(elev_path) as src:
        elev_array = src.read(1)
+       crs = src.crs
+       transform = src.transform
 
     if normalize:
         elev_array = (elev_array - np.nanmin(elev_array)) / (np.nanmax(elev_array) - np.nanmin(elev_array))
         elev_array = np.nan_to_num(elev_array)
 
-    return elev_array
+    return elev_array, src.transform, src.crs
 
 #resample elevation to fit CNN
 def resample_elevation(elev_array, target_shape=(256,256)):
@@ -144,38 +151,65 @@ def load_ura(ura_path):
 
     return feature_collection
 
-'''
-#URA mapping to integer codes
-def assign_ura_class():
-    #map the land use to codes
-    return {
-        'Residential': 1,
-        'Commercial': 2,
-        'Industrial': 3,
-        'Agricultural': 4,
-        'Park': 5,
-        'Waterbody': 6,
-        'Forest': 7,
-        'Other': 0
+#the description in the land use map is HTML, in the <th>LU_DESC</th>
+#to use BeautifulSoup or just simple parsing?
+def map_landuse(land_names):
+
+    mapping_landuse= {
+        "PARK": 1,
+        "ROAD": 2,
+        "OPEN SPACE": 3,
+        "WATERBODY": 4,
+        "PLACE OF WORSHIP": 5,
+        "CIVIC & COMMUNITY INSTITUTION": 6,
+        "RESIDENTIAL": 7,
+        "COMMERCIAL": 8,
+        "INDUSTRIAL": 9,
+        "BUSINESS 1": 10,
+        "BUSINESS 2": 11,
+        "HOTEL": 12,
+        "BEACH": 13,
+        "EDUCATIONAL INSTITUTION": 14,
+        "CEMETRY": 15,
+        "NATURE RESERVE": 16,
+        "NATIONAL PARK": 17,
+
     }
+    #this only affects description, adding column landcode w integer values
+    match = re.search(r"<th>LU_DESC</th>\s<td>(.*?)</td>", land_names, re.IGNORECASE)
+    if match:
+        lu_desc = match.group(1).strip().upper()
+        return mapping_landuse.get(lu_desc, 0)
+    return 0
 
-def final_load(ura_fc):
+#rasterize land code as grid 
+def resample_ura(gdf, target_crs, target_transform, target_shape = (256,256)):
+    gdf = gdf.to_crs(target_crs)
 
-    ee_class_map = ee.Dictionary(assign_ura_class())
+    #preparing geo and land code tuples
+    shapes = ((geom, value) for geom, value in zip(gdf.geometry, gdf["land_code"]))
 
-    def assign_class(feature):
-        return feature.set('LU_CODE', ee_class_map.get(feature.get('LU_DESC'), 0))
-     
-  
-    return ura_fc.map(assign_class)
+    #rasterize column to target grid
+    landuse_raster = rasterize(
+        shapes=shapes,
+        out_shape=target_shape,
+        transform=target_transform,
+        fill=0,
+        dtype="uint8"
+    )
 
-def rasterize_land(ura_fc):
-    return ura_fc.reduceToImage(
-        properties=['LU_CODE'],
-        reducer=ee.Reducer.first()
-    ).rename('LandUse') 
+    #resizing using nearest-neighbour
+    landuse_resized = resize(
+        landuse_raster,
+        (256,256),
+        order=0,
+        preserve_range=True,
+        anti_aliasing=False
+    ).astype("uint8")
+    
+    return landuse_resized
 
-'''
+
 
 #getting zscores for ML
 
@@ -386,11 +420,11 @@ def main():
     #lst_image = lst_image.clip(singapore_boundary)
 
     #load elevation and resize 
-    elev = load_elevation(
+    elev_array, transform, crs = load_elevation(
         elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
     )
     
-    elev_resized = resample_elevation(elev, target_shape=(256, 256))
+    elev_resized = resample_elevation(elev_array, target_shape=(256, 256))
     print(f"Elevation Array Shape: {elev_resized.shape}")
 
     #lst resize
@@ -409,12 +443,27 @@ def main():
     ura_path = "MasterPlan2019LandUselayer.geojson"
     gdf = gpd.read_file(ura_path)
 
-    print(gdf.columns)
-    print(gdf["Description"].unique())
+    #print(gdf.columns)
+    #print(gdf["Description"].unique())
+
+    #URA map names
+    gdf["land_code"] = gdf["Description"].apply(map_landuse)
+    #print(gdf["land_code"])
+
+    
+    ura_cnn_ready = resample_ura(
+    gdf=gdf[["geometry", "land_code"]],
+    target_crs=crs,
+    target_transform=transform,
+    target_shape=elev_array.shape  # original shape before resizing
+    )
+    
+    print("URA CNN-ready shape:", ura_cnn_ready.shape)
 
 
-    #ura_fc_mapped = map_land_use(ura_fc)
-    #ura_raster = rasterize_land(ura_fc_mapped)
+    
+    
+    #print(gdf.head())
 
     '''
 
