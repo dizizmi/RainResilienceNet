@@ -18,8 +18,6 @@ from skimage.transform import resize
 import json
 import re
 
-
-
 from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
@@ -138,7 +136,7 @@ def resample_elevation(elev_array, target_shape=(256,256)):
     return elev_resampled
 
 
-#URA Land Plan 2019, load geoJSON file (WIP, not done w URA)
+#URA Land Plan 2019, load geoJSON file 
 def load_ura(ura_path):
     
     gdf = gpd.read_file(ura_path)
@@ -420,24 +418,41 @@ def main():
     #lst_image = lst_image.clip(singapore_boundary)
 
     #load elevation and resize 
+
+    with rasterio.open("AST14DEM_00308102024025318_20250508075518_368746.tif") as src:
+
+        crs = src.crs.to_string()
+        bounds = src.bounds
+        res = src.res
+        width1, height1 = src.width, src.height
+        transform = src.transform
+    
+    print(f"CRS: {crs}")
+    print(f"Bounds: {bounds}")
+    print(f"Resolution: {res}")
+    print(f"Width: {width1}, Height: {height1}")
+
+    
+    '''
     elev_array, transform, crs = load_elevation(
         elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
     )
     
+    
     elev_resized = resample_elevation(elev_array, target_shape=(256, 256))
-    print(f"Elevation Array Shape: {elev_resized.shape}")
+    #print(f"Elevation Array Shape: {elev_resized.shape}")
 
     #lst resize
     lst_array = lst_to_numpy(lst_image, singapore_boundary, scale=1000)
     lst_cnn_ready = resample_lst(lst_array, target_shape=(256, 256))
-    print(f"LST array shape: {lst_cnn_ready.shape}")
+    #print(f"LST array shape: {lst_cnn_ready.shape}")
 
     #load ndvi and resize
     ndvi_image = load_ndvi(singapore_boundary)
 
     ndvi_array = lst_to_numpy(ndvi_image, singapore_boundary, scale=1000)
     ndvi_cnn_ready = resample_ndvi(ndvi_array, target_shape=(256, 256))
-    print(f"NDVI array shape: {ndvi_cnn_ready.shape}")
+    #print(f"NDVI array shape: {ndvi_cnn_ready.shape}")
 
     #load URA
     ura_path = "MasterPlan2019LandUselayer.geojson"
@@ -458,10 +473,10 @@ def main():
     target_shape=elev_array.shape  # original shape before resizing
     )
     
-    print("URA CNN-ready shape:", ura_cnn_ready.shape)
+    #print("URA CNN-ready shape:", ura_cnn_ready.shape)
 
 
-    
+    '''
     
     #print(gdf.head())
 
