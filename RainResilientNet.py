@@ -10,6 +10,15 @@ import requests
 from datetime import datetime, timedelta
 import time
 import seaborn as sns
+import geopandas as gpd
+import rasterio
+
+from rasterio.features import rasterize
+from skimage.transform import resize
+import json
+import re
+
+
 
 from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
@@ -39,6 +48,171 @@ def load_lst(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20')
 
     return lst.clip(singapore_boundary)
 
+def resample_lst(lst_array, target_shape=(256,256), normalize=True):
+    '''
+    note lst array is 2d array, target shape is heightwidth, normalize to 0-1 range
+    '''
+
+    lst_array = np.nan_to_num(lst_array)
+
+    #resize
+    lst_resized = resize(
+        lst_array,
+        target_shape,
+        preserve_range=True,
+        anti_aliasing=True
+    )
+
+    #normalize
+    if normalize:
+        lst_resized = (lst_resized - np.min(lst_resized)) / (np.max(lst_resized) - np.min(lst_resized))
+
+    return lst_resized
+
+#MODIS13Q1 for NDVI 
+def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'):
+    collection = ee.ImageCollection("MODIS/061/MOD13Q1") \
+        .filterDate(start_date, end_date) 
+        
+    count = collection.size().getInfo()
+    if count == 0:
+        raise ValueError("No images found for the specified date range.")
+
+    ndvi = collection.mean() \
+        .select('NDVI') \
+        .rename('NDVI')
+
+    return ndvi.clip(singapore_boundary)
+
+def resample_ndvi(ndvi_array, target_shape=(256,256), normalize=True):
+    ''' 
+    note: ndvi array is 2d array, target shape is heightwidth, normalize to 0-1 range
+    '''
+    ndvi_array = np.nan_to_num(ndvi_array)
+
+    ndvi_resized = resize(
+        ndvi_array,
+        target_shape,
+        preserve_range=True,
+        anti_aliasing=True
+    )
+
+    if normalize:
+        ndvi_resized = (ndvi_resized - np.min(ndvi_resized)) / (np.max(ndvi_resized) - np.min(ndvi_resized))
+
+    return ndvi_resized
+
+
+#ASTER DEM v3 for elevation of singapore (1 granule of sg)
+def load_elevation(elev_path: str, normalize: bool = True):
+    '''
+    note: elev path is the path to the tiff file, boundary path is path to GEOjson to clip sg boundary, normalise between 0 to 1
+    returns np.ndarray the clipped and normalized
+    '''
+
+    with rasterio.open(elev_path) as src:
+       elev_array = src.read(1)
+       crs = src.crs
+       transform = src.transform
+
+    if normalize:
+        elev_array = (elev_array - np.nanmin(elev_array)) / (np.nanmax(elev_array) - np.nanmin(elev_array))
+        elev_array = np.nan_to_num(elev_array)
+
+    return elev_array, src.transform, src.crs
+
+#resample elevation to fit CNN
+def resample_elevation(elev_array, target_shape=(256,256)):
+    '''
+    note: elev_array is 2d elevation array, target shape is the height width of output
+    returnsn np.ndarray resampled elevation array
+    '''
+    elev_resampled  = resize(
+        elev_array,
+        target_shape,
+        mode='reflect',
+        anti_aliasing=True,
+        preserve_range=True
+
+    )
+    return elev_resampled
+
+
+#URA Land Plan 2019, load geoJSON file (WIP, not done w URA)
+def load_ura(ura_path):
+    
+    gdf = gpd.read_file(ura_path)
+
+    geojson_str = gdf.to_json()
+
+    #got an error to that it is not in integers but strings so,
+    geojson_dict = json.loads(geojson_str)
+    feature_collection = geemap.geojson_to_ee(geojson_dict)
+
+    return feature_collection
+
+#the description in the land use map is HTML, in the <th>LU_DESC</th>
+#to use BeautifulSoup or just simple parsing?
+def map_landuse(land_names):
+
+    mapping_landuse= {
+        "PARK": 1,
+        "ROAD": 2,
+        "OPEN SPACE": 3,
+        "WATERBODY": 4,
+        "PLACE OF WORSHIP": 5,
+        "CIVIC & COMMUNITY INSTITUTION": 6,
+        "RESIDENTIAL": 7,
+        "COMMERCIAL": 8,
+        "INDUSTRIAL": 9,
+        "BUSINESS 1": 10,
+        "BUSINESS 2": 11,
+        "HOTEL": 12,
+        "BEACH": 13,
+        "EDUCATIONAL INSTITUTION": 14,
+        "CEMETRY": 15,
+        "NATURE RESERVE": 16,
+        "NATIONAL PARK": 17,
+
+    }
+    #this only affects description, adding column landcode w integer values
+    match = re.search(r"<th>LU_DESC</th>\s<td>(.*?)</td>", land_names, re.IGNORECASE)
+    if match:
+        lu_desc = match.group(1).strip().upper()
+        return mapping_landuse.get(lu_desc, 0)
+    return 0
+
+#rasterize land code as grid 
+def resample_ura(gdf, target_crs, target_transform, target_shape = (256,256)):
+    gdf = gdf.to_crs(target_crs)
+
+    #preparing geo and land code tuples
+    shapes = ((geom, value) for geom, value in zip(gdf.geometry, gdf["land_code"]))
+
+    #rasterize column to target grid
+    landuse_raster = rasterize(
+        shapes=shapes,
+        out_shape=target_shape,
+        transform=target_transform,
+        fill=0,
+        dtype="uint8"
+    )
+
+    #resizing using nearest-neighbour
+    landuse_resized = resize(
+        landuse_raster,
+        (256,256),
+        order=0,
+        preserve_range=True,
+        anti_aliasing=False
+    ).astype("uint8")
+    
+    return landuse_resized
+
+
+
+#getting zscores for ML
+
 def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
     arr = geemap.ee_to_numpy(
         ee_object=lst_ee,
@@ -47,9 +221,10 @@ def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
     )
 
     if arr.ndim == 3:
-        arr = arr[:, :, 0]
-
+       arr = arr[:, :, 0]
+    
     return arr
+
 #zscoring for LST
 def normalize_list_zscore(lst_array):
     mean_lst = np.nanmean(lst_array)
@@ -184,6 +359,8 @@ def prepare_rainfall_data(rainfall_120h_df, z_scores, hotspot_mask, bounds):
     return rainfall_summary
 
 
+
+'''
 #XGBoost regression model- test rainfall on urban heat
 def prepare_features(df):
     df = df.dropna(subset=['lst_zscore', 'total_rainfall_mm'])
@@ -228,8 +405,7 @@ def run_xgboost_pipeline(rainfall_summary):
 
     print("Plotting feature importance...")
     plot_feature_importance(model, X_train.columns)
-
-
+'''
 
 def main():
     ee.Initialize(project='ee-alyshabm000')
@@ -239,9 +415,57 @@ def main():
     '''singapore_boundary = ee.FeatureCollection( "FAO/GAUL_SIMPLIFIED_500m/2015/level0") \
     .filter(ee.Filter.eq('ADM0_NAME', 'Singapore')).geometry()'''
 
-    #Load LST image to sg boundary
+    #load LST image to sg boundary
     lst_image = load_lst(singapore_boundary)
     #lst_image = lst_image.clip(singapore_boundary)
+
+    #load elevation and resize 
+    elev_array, transform, crs = load_elevation(
+        elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
+    )
+    
+    elev_resized = resample_elevation(elev_array, target_shape=(256, 256))
+    print(f"Elevation Array Shape: {elev_resized.shape}")
+
+    #lst resize
+    lst_array = lst_to_numpy(lst_image, singapore_boundary, scale=1000)
+    lst_cnn_ready = resample_lst(lst_array, target_shape=(256, 256))
+    print(f"LST array shape: {lst_cnn_ready.shape}")
+
+    #load ndvi and resize
+    ndvi_image = load_ndvi(singapore_boundary)
+
+    ndvi_array = lst_to_numpy(ndvi_image, singapore_boundary, scale=1000)
+    ndvi_cnn_ready = resample_ndvi(ndvi_array, target_shape=(256, 256))
+    print(f"NDVI array shape: {ndvi_cnn_ready.shape}")
+
+    #load URA
+    ura_path = "MasterPlan2019LandUselayer.geojson"
+    gdf = gpd.read_file(ura_path)
+
+    #print(gdf.columns)
+    #print(gdf["Description"].unique())
+
+    #URA map names
+    gdf["land_code"] = gdf["Description"].apply(map_landuse)
+    #print(gdf["land_code"])
+
+    
+    ura_cnn_ready = resample_ura(
+    gdf=gdf[["geometry", "land_code"]],
+    target_crs=crs,
+    target_transform=transform,
+    target_shape=elev_array.shape  # original shape before resizing
+    )
+    
+    print("URA CNN-ready shape:", ura_cnn_ready.shape)
+
+
+    
+    
+    #print(gdf.head())
+
+    '''
 
     #Loading geemap 
     Map = geemap.Map()
@@ -255,10 +479,13 @@ def main():
     Map.centerObject(singapore_boundary, 10)
     Map.addLayer(singapore_boundary, {}, "Singapore Boundary")
     Map.addLayer(lst_image, vis_params, 'Singapore LST (°C)')
+    #Map.addLayer(ura_raster, {}, 'URA Land Use')
     
 
     #savemap to html
-    '''html_file = "lst_map.html"
+    '''
+    '''
+    html_file = "lst_map.html"
     Map.to_html(html_file)
     print(f"Map has been saved to {html_file}.")
     webbrowser.open(html_file)
@@ -308,9 +535,9 @@ def main():
     print(plt.show())
     '''
 
-    run_xgboost_pipeline(rainfall_summary)
+    # run_xgboost_pipeline(rainfall_summary)
 
-
+    # stacked_tile = np.stack([lst_tile, ndvi_tile, elev_resized], axis=-1)
 
 if __name__ == "__main__":
     main()
