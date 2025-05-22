@@ -51,6 +51,29 @@ def load_lst(filepath, target_shape=(256,256), normalize=True):
 
     return lst_array
 
+#reprocessed script in ee - ndvi raster aligned to DEM CRS
+
+def load_ndvi(filepath, target_shape=(256, 256), normalize=True):
+    '''
+    params: filepath - path to the tif file, shape to resize to, normalise NDVI to 0-1 range
+    returns numpy array for CNN
+    '''
+
+    with rasterio.open(filepath) as src:
+        ndvi_array = src.read(1)
+        ndvi_array = np.nan_to_num(ndvi_array)
+
+    ndvi_array = resize(
+        ndvi_array,
+        target_shape,
+        preserve_range=True,
+        anti_aliasing=True
+    )
+    #from [-1.0, 1.0] to [0, 1]
+    if normalize:
+        ndvi_array = (ndvi_array + 1) / 2 
+    
+    return ndvi_array
 
 
 '''
@@ -92,7 +115,6 @@ def resample_lst(lst_array, target_shape=(256,256), normalize=True):
         lst_resized = (lst_resized - np.min(lst_resized)) / (np.max(lst_resized) - np.min(lst_resized))
 
     return lst_resized
-'''
 
 #MODIS13Q1 for NDVI 
 def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'):
@@ -110,9 +132,9 @@ def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'
     return ndvi.clip(singapore_boundary)
 
 def resample_ndvi(ndvi_array, target_shape=(256,256), normalize=True):
-    ''' 
+    
     note: ndvi array is 2d array, target shape is heightwidth, normalize to 0-1 range
-    '''
+    
     ndvi_array = np.nan_to_num(ndvi_array)
 
     ndvi_resized = resize(
@@ -126,7 +148,7 @@ def resample_ndvi(ndvi_array, target_shape=(256,256), normalize=True):
         ndvi_resized = (ndvi_resized - np.min(ndvi_resized)) / (np.max(ndvi_resized) - np.min(ndvi_resized))
 
     return ndvi_resized
-
+'''
 
 #ASTER DEM v3 for elevation of singapore (1 granule of sg)
 def load_elevation(elev_path: str, normalize: bool = True):
@@ -440,12 +462,16 @@ def main():
     '''singapore_boundary = ee.FeatureCollection( "FAO/GAUL_SIMPLIFIED_500m/2015/level0") \
     .filter(ee.Filter.eq('ADM0_NAME', 'Singapore')).geometry()'''
 
-    #load LST image to sg boundary
+    #load LST image, followed elevation params
     '''intial LST usage - lst_image = load_lst(singapore_boundary)
     lst_image = lst_image.clip(singapore_boundary)'''
 
     lst_resized = load_lst("LST_to_DEM.tif")
     print(lst_resized.shape)
+
+    #load ndvi
+    ndvi_resized = load_ndvi("NDVI_aligned_to_DEM.tif")
+    print(ndvi_resized.shape)
 
     #load elevation and resize 
     with rasterio.open("AST14DEM_00308102024025318_20250508075518_368746.tif") as src:
@@ -455,22 +481,21 @@ def main():
         res = src.res
         width1, height1 = src.width, src.height
         transform = src.transform
-    
+    '''
     print(f"CRS: {crs}")
     print(f"Bounds: {bounds}")
     print(f"Resolution: {res}")
     print(f"Width: {width1}, Height: {height1}")
-
-    
     '''
+    
     elev_array, transform, crs = load_elevation(
         elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
     )
     
     
     elev_resized = resample_elevation(elev_array, target_shape=(256, 256))
-    #print(f"Elevation Array Shape: {elev_resized.shape}")
-
+    print(f"Elevation Array Shape: {elev_resized.shape}")
+    '''
     #lst resize
     lst_array = lst_to_numpy(lst_image, singapore_boundary, scale=1000)
     lst_cnn_ready = resample_lst(lst_array, target_shape=(256, 256))
@@ -482,7 +507,7 @@ def main():
     ndvi_array = lst_to_numpy(ndvi_image, singapore_boundary, scale=1000)
     ndvi_cnn_ready = resample_ndvi(ndvi_array, target_shape=(256, 256))
     #print(f"NDVI array shape: {ndvi_cnn_ready.shape}")
-
+    '''
     #load URA
     ura_path = "MasterPlan2019LandUselayer.geojson"
     gdf = gpd.read_file(ura_path)
@@ -502,10 +527,10 @@ def main():
     target_shape=elev_array.shape  # original shape before resizing
     )
     
-    #print("URA CNN-ready shape:", ura_cnn_ready.shape)
+    print("URA CNN-ready shape:", ura_cnn_ready.shape)
 
 
-    '''
+    
     
     #print(gdf.head())
 
@@ -538,17 +563,17 @@ def main():
     #lst_array = lst_to_numpy(lst_image, singapore_boundary)
     '''
     #normalize zscore
-   # z_scores = normalize_list_zscore(lst_array)
-   # plot_z_scores(z_scores)
-    '''
+    z_scores = normalize_list_zscore(lst_resized)
     #detect hotspots
     hotspot_mask = detect_hotspots(z_scores)
+
+    '''
     plt.figure(figsize=(10, 6))
     plt.imshow(hotspot_mask, cmap='hot')
     plt.title('Detected hotspots')
     plt.axis('off')
     plt.show()
-    
+    '''
     #get rainfall data
     rainfall_120h_df = load_rainfall(120)
     bounds = (1.22, 1.48, 103.6, 104.0)
@@ -558,7 +583,7 @@ def main():
         hotspot_mask,
         bounds
     )   
-   '''
+   
     #plotting
     '''sns.set(style="whitegrid")
 
