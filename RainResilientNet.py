@@ -257,7 +257,6 @@ def resample_ura(gdf, target_crs, target_transform, target_shape = (256,256)):
     return landuse_resized
 
 
-
 #getting zscores for ML
 
 def lst_to_numpy(lst_ee, singapore_boundary, scale=1000):
@@ -529,13 +528,20 @@ def main():
     
     print("URA CNN-ready shape:", ura_cnn_ready.shape)
 
+    #Load all CNN, ading channel dimension
+    lst_cnn = lst_resized[..., np.newaxis]
+    ndvi_cnn = ndvi_resized[..., np.newaxis]
+    elev_cnn = elev_resized[..., np.newaxis]
+    ura_cnn = ura_cnn_ready[..., np.newaxis]
 
+    cnn_input = np.concatenate((lst_cnn, ndvi_cnn, elev_cnn, ura_cnn), axis=-1)
+    # adding batch dimension
+    cnn_input = cnn_input[np.newaxis, ...]  
+
+    print(f"CNN input shape: {cnn_input.shape}")
     
-    
-    #print(gdf.head())
 
     '''
-
     #Loading geemap 
     Map = geemap.Map()
     vis_params = {
