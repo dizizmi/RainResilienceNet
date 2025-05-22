@@ -28,6 +28,32 @@ def load_singapore_boundary():
         .geometry()
 
 
+#reprocessed script in ee - lst raster aligned to DEM CRS
+def load_lst(filepath, target_shape=(256,256), normalize=True):
+    '''
+    params: filepath - path to the tif file, shape to resize to, normalise LST to 0-1 range
+    return lst preprocessed Numpy array for CNN input
+    '''
+
+    with rasterio.open(filepath) as src:
+        lst_array = src.read(1)
+        lst_array = np.nan_to_num(lst_array)
+    
+    lst_array = resize(
+        lst_array,
+        target_shape,
+        preserve_range=True,
+        anti_aliasing=True
+    )
+
+    if normalize:
+        lst_array = (lst_array - np.min(lst_array)) / (np.max(lst_array) - np.min(lst_array))
+
+    return lst_array
+
+
+
+'''
 #MODIS11A2 for Land Surface Temperature (LST) 8-day avg 2024 till PRESENT
 def load_lst(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'):
 
@@ -47,9 +73,9 @@ def load_lst(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20')
     return lst.clip(singapore_boundary)
 
 def resample_lst(lst_array, target_shape=(256,256), normalize=True):
-    '''
+    
     note lst array is 2d array, target shape is heightwidth, normalize to 0-1 range
-    '''
+    
 
     lst_array = np.nan_to_num(lst_array)
 
@@ -66,6 +92,7 @@ def resample_lst(lst_array, target_shape=(256,256), normalize=True):
         lst_resized = (lst_resized - np.min(lst_resized)) / (np.max(lst_resized) - np.min(lst_resized))
 
     return lst_resized
+'''
 
 #MODIS13Q1 for NDVI 
 def load_ndvi(singapore_boundary, start_date='2024-01-01', end_date='2025-04-20'):
@@ -414,11 +441,13 @@ def main():
     .filter(ee.Filter.eq('ADM0_NAME', 'Singapore')).geometry()'''
 
     #load LST image to sg boundary
-    lst_image = load_lst(singapore_boundary)
-    #lst_image = lst_image.clip(singapore_boundary)
+    '''intial LST usage - lst_image = load_lst(singapore_boundary)
+    lst_image = lst_image.clip(singapore_boundary)'''
+
+    lst_resized = load_lst("LST_to_DEM.tif")
+    print(lst_resized.shape)
 
     #load elevation and resize 
-
     with rasterio.open("AST14DEM_00308102024025318_20250508075518_368746.tif") as src:
 
         crs = src.crs.to_string()
@@ -505,21 +534,21 @@ def main():
     print(f"Map has been saved to {html_file}.")
     webbrowser.open(html_file)
     '''
-    #Convert to numpy array
-    lst_array = lst_to_numpy(lst_image, singapore_boundary)
-
+    '''Convert to numpy array (old LST)
+    #lst_array = lst_to_numpy(lst_image, singapore_boundary)
+    '''
     #normalize zscore
-    z_scores = normalize_list_zscore(lst_array)
+   # z_scores = normalize_list_zscore(lst_array)
    # plot_z_scores(z_scores)
-
+    '''
     #detect hotspots
     hotspot_mask = detect_hotspots(z_scores)
-    ''' plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(10, 6))
     plt.imshow(hotspot_mask, cmap='hot')
     plt.title('Detected hotspots')
     plt.axis('off')
     plt.show()
-    '''
+    
     #get rainfall data
     rainfall_120h_df = load_rainfall(120)
     bounds = (1.22, 1.48, 103.6, 104.0)
@@ -529,7 +558,7 @@ def main():
         hotspot_mask,
         bounds
     )   
-   
+   '''
     #plotting
     '''sns.set(style="whitegrid")
 
