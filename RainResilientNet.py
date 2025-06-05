@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import requests 
 from datetime import datetime, timedelta
 import time
-import seaborn as sns
+#import seaborn as sns
 import geopandas as gpd
 import rasterio
 
@@ -18,9 +18,12 @@ from skimage.transform import resize
 import json
 import re
 
-from xgboost import XGBRegressor
+# from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
+
+#from tensorflow.keras.models import Model
+#from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout, BatchNormalization
 
 def load_singapore_boundary():
     return ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level1") \
@@ -539,7 +542,11 @@ def main():
     cnn_input = cnn_input[np.newaxis, ...]  
 
     print(f"CNN input shape: {cnn_input.shape}")
-    
+    np.save("cnn_input.npy", cnn_input)
+    np.save("lst_resized.npy", lst_resized)
+    np.save("ndvi_resized.npy", ndvi_resized)
+    np.save("elev_resized.npy", elev_resized)
+    np.save("ura_cnn_ready.npy", ura_cnn_ready)
 
     '''
     #Loading geemap 
