@@ -1,13 +1,13 @@
 import numpy as np
 import tensorflow as tf
-
+import os
 from tensorflow import keras
 from keras.models import Model
 from keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, BatchNormalization, Dropout
 
 #CNN to capture ....?
 
-def build_cnn_model(input_shape=(256, 256, 4), output_type='classification'):
+def build_cnn_model(input_shape=(64, 64, 4), output_type='classification'):
     inputs = Input(shape=input_shape)
 
     x = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
@@ -39,10 +39,17 @@ def build_cnn_model(input_shape=(256, 256, 4), output_type='classification'):
     return model
 
 def main():
+    patch_folder = "cnn_patches"
 
-    X = np.load("cnn_input.npy")
+    cnn_patches = sorted([
+    os.path.join(patch_folder, f) 
+    for f in os.listdir(patch_folder) 
+    if f.endswith(".npy")
+])
 
-    y = np.array([1])
+    X = np.stack([np.load(f) for f in cnn_patches])
+
+    y = np.array([1] * 8 + [0] * 8)  # dummy binary labels
 
     cnn_flood_model = build_cnn_model(output_type='classification')
 
