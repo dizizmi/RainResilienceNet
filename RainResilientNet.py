@@ -476,7 +476,7 @@ def main():
     print(ndvi_resized.shape)
 
     #load elevation and resize 
-    with rasterio.open("AST14DEM_00308102024025318_20250508075518_368746.tif") as src:
+    with rasterio.open("singapore_elevation_zones.tif") as src:
 
         crs = src.crs.to_string()
         bounds = src.bounds
@@ -491,7 +491,7 @@ def main():
     '''
     
     elev_array, transform, crs = load_elevation(
-        elev_path="AST14DEM_00308102024025318_20250508075518_368746.tif"
+        elev_path="singapore_elevation_zones.tif"
     )
     
     
@@ -531,22 +531,24 @@ def main():
     
     print("URA CNN-ready shape:", ura_cnn_ready.shape)
 
-    #Load all CNN, ading channel dimension
+    #TENSORFLOW cnn input preparation
+    #load all CNN, ading channel dimension, np.newaxis to reshape ONE array 
     lst_cnn = lst_resized[..., np.newaxis]
     ndvi_cnn = ndvi_resized[..., np.newaxis]
     elev_cnn = elev_resized[..., np.newaxis]
     ura_cnn = ura_cnn_ready[..., np.newaxis]
 
-    cnn_input = np.concatenate((lst_cnn, ndvi_cnn, elev_cnn, ura_cnn), axis=-1)
-    # adding batch dimension
+    #np.concencate flattens all array/ channel dimension (256,256,4) h,w,channels
+    cnn_input = np.concatenate((lst_cnn, ndvi_cnn, elev_cnn, ura_cnn), axis=-1) 
+    # adding batch dimension (1,256,256,4)
     cnn_input = cnn_input[np.newaxis, ...]  
 
     print(f"CNN input shape: {cnn_input.shape}")
-    np.save("cnn_input.npy", cnn_input)
-    np.save("lst_resized.npy", lst_resized)
-    np.save("ndvi_resized.npy", ndvi_resized)
-    np.save("elev_resized.npy", elev_resized)
-    np.save("ura_cnn_ready.npy", ura_cnn_ready)
+    np.save("cnn_input2.npy", cnn_input)
+    np.save("lst_resized2.npy", lst_resized)
+    np.save("ndvi_resized2.npy", ndvi_resized)
+    np.save("elev_resized3.npy", elev_resized)
+    np.save("ura_cnn_ready2.npy", ura_cnn_ready)
 
     '''
     #Loading geemap 
