@@ -51,6 +51,7 @@ def main():
     #print(f"cnn_input shape: {cnn_input.shape}")
 
     #extract and save patches
+    
     extract_and_save_patches(cnn_input, patch_size=64, stride=64)
 
 if __name__ == "__main__":

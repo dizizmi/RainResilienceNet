@@ -4,6 +4,7 @@ import os
 from tensorflow import keras
 from keras.models import Model
 from keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, BatchNormalization, Dropout
+from sklearn.model_selection import train_test_split
 
 #CNN to capture ....?
 
@@ -33,7 +34,7 @@ def build_cnn_model(input_shape=(64, 64, 4), output_type='classification'):
     model.compile(
         optimizer='adam',
         loss='binary_crossentropy',
-        metrics=['accuracy']
+        metrics=['accuracy', Precision(), Recall()]
     )
 
     return model
@@ -45,15 +46,21 @@ def main():
     os.path.join(patch_folder, f) 
     for f in os.listdir(patch_folder) 
     if f.endswith(".npy")
-])
+    ])
 
-    X = np.stack([np.load(f) for f in cnn_patches])
+   
+   # X = np.stack([np.load(f) for f in cnn_patches])
 
-    y = np.array([1] * 8 + [0] * 8)  # dummy binary labels
+    # y = np.array([1] * 8 + [0] * 8)  # dummy binary labels
 
-    cnn_flood_model = build_cnn_model(output_type='classification')
 
-    cnn_flood_model.fit(X, y, epochs=10)
+    # cnn_flood_model = build_cnn_model(output_type='classification')
+
+   # X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
+
+    #cnn_flood_model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10)
+
+   
     
 
 if __name__ == "__main__":

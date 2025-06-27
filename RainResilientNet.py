@@ -169,7 +169,7 @@ def load_elevation(elev_path: str, normalize: bool = True):
         elev_array = (elev_array - np.nanmin(elev_array)) / (np.nanmax(elev_array) - np.nanmin(elev_array))
         elev_array = np.nan_to_num(elev_array)
 
-    return elev_array, src.transform, src.crs
+    return elev_array, src.transform, src.crs 
 
 #resample elevation to fit CNN
 def resample_elevation(elev_array, target_shape=(256,256)):
