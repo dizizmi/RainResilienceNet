@@ -18,6 +18,8 @@ from skimage.transform import resize
 import json
 import re
 
+from shapely.wkb import dumps, loads
+
 # from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
@@ -153,7 +155,7 @@ def resample_ndvi(ndvi_array, target_shape=(256,256), normalize=True):
     return ndvi_resized
 '''
 
-#ASTER DEM v3 for elevation of singapore (1 granule of sg)
+#NASA GDEM for elevation of singapore 
 def load_elevation(elev_path: str, normalize: bool = True):
     '''
     note: elev path is the path to the tiff file, boundary path is path to GEOjson to clip sg boundary, normalise between 0 to 1
@@ -496,7 +498,7 @@ def main():
     
     
     elev_resized = resample_elevation(elev_array, target_shape=(256, 256))
-    print(f"Elevation Array Shape: {elev_resized.shape}")
+    # print(f"Elevation Array Shape: {elev_resized.shape}")
     '''
     #lst resize
     lst_array = lst_to_numpy(lst_image, singapore_boundary, scale=1000)
@@ -514,14 +516,20 @@ def main():
     ura_path = "MasterPlan2019LandUselayer.geojson"
     gdf = gpd.read_file(ura_path)
 
-    #print(gdf.columns)
+    print(gdf.columns)
     #print(gdf["Description"].unique())
 
     #URA map names
     gdf["land_code"] = gdf["Description"].apply(map_landuse)
-    #print(gdf["land_code"])
 
-    
+    #make landuse map into 2D from 3D, dumps used as to serialise the geometry shape to binary and drop z and loads to rebuild the shape in 2d from binary
+
+    gdf['geometry'] = gdf['geometry'].apply(lambda g: loads(dumps(g, output_dimension=2)))
+    #has_z is a property of shapely geometry to check if it has z dimension
+    is_now_3d = gdf['geometry'].apply(lambda g: hasattr(g, 'has_z') and g.has_z)
+    print("Still 3D geometries after conversion:", is_now_3d.sum())
+
+    '''
     ura_cnn_ready = resample_ura(
     gdf=gdf[["geometry", "land_code"]],
     target_crs=crs,
@@ -530,7 +538,7 @@ def main():
     )
     
     print("URA CNN-ready shape:", ura_cnn_ready.shape)
-
+    
     #TENSORFLOW cnn input preparation
     #load all CNN, ading channel dimension, np.newaxis to reshape ONE array 
     lst_cnn = lst_resized[..., np.newaxis]
@@ -544,13 +552,13 @@ def main():
     cnn_input = cnn_input[np.newaxis, ...]  
 
     print(f"CNN input shape: {cnn_input.shape}")
-    np.save("cnn_input2.npy", cnn_input)
-    np.save("lst_resized2.npy", lst_resized)
-    np.save("ndvi_resized2.npy", ndvi_resized)
-    np.save("elev_resized3.npy", elev_resized)
-    np.save("ura_cnn_ready2.npy", ura_cnn_ready)
+    np.save("cnn_input3.npy", cnn_input)
+    np.save("lst_resized3.npy", lst_resized)
+    np.save("ndvi_resized3.npy", ndvi_resized)
+    np.save("elev_resized4.npy", elev_resized)
+    np.save("ura_cnn_ready3.npy", ura_cnn_ready)
 
-    '''
+    
     #Loading geemap 
     Map = geemap.Map()
     vis_params = {
@@ -577,6 +585,8 @@ def main():
     '''Convert to numpy array (old LST)
     #lst_array = lst_to_numpy(lst_image, singapore_boundary)
     '''
+
+    
     #normalize zscore
     z_scores = normalize_list_zscore(lst_resized)
     #detect hotspots
@@ -618,7 +628,7 @@ def main():
     plt.tight_layout()
     print(plt.show())
     '''
-
+    
     # run_xgboost_pipeline(rainfall_summary)
 
     # stacked_tile = np.stack([lst_tile, ndvi_tile, elev_resized], axis=-1)
