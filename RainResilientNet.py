@@ -20,6 +20,8 @@ import re
 
 from shapely.wkb import dumps, loads
 
+from rasterio.transform import from_bounds
+
 # from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
@@ -477,6 +479,44 @@ def main():
     ndvi_resized = load_ndvi("NDVI_aligned_to_DEM.tif")
     print(ndvi_resized.shape)
 
+
+    #loading landuse geoJson to rasterize into 30m and epsg:4326
+    land_gdf = gpd.read_file("landuse_cleaned1.geojson")
+    land_gdf = land_gdf.to_crs(epsg=4326)
+
+    #raster size based on ~30m resolution in degrees
+    minx, miny, maxx, maxy = land_gdf.total_bounds
+    pixel_size_deg = 30/111320
+    
+    width = int((maxx - minx) / pixel_size_deg)
+    height = int((maxy - miny) / pixel_size_deg)
+    transform  = from_bounds(minx, miny, maxx, maxy, width, height)
+
+    shapes = zip(land_gdf.geometry, land_gdf.land_code)
+
+    raster = rasterize(
+        shapes=shapes,
+        out_shape=(height, width),
+        transform=transform,
+        fill=0,
+        dtype='uint8'
+    )
+
+    with rasterio.open(
+        "landuse_raster_30m.tif", "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=1,
+        dtype=raster.dtype,
+        crs="EPSG:4326",
+        transform=transform
+    ) as dst:
+        dst.write(raster, 1)
+
+    print("Land-use raster saved as 'landuse_raster_30m.tif'")
+
+'''
     #load elevation and resize 
     with rasterio.open("singapore_elevation_zones.tif") as src:
 
@@ -485,12 +525,12 @@ def main():
         res = src.res
         width1, height1 = src.width, src.height
         transform = src.transform
-    '''
+    
     print(f"CRS: {crs}")
     print(f"Bounds: {bounds}")
     print(f"Resolution: {res}")
     print(f"Width: {width1}, Height: {height1}")
-    '''
+    
     
     elev_array, transform, crs = load_elevation(
         elev_path="singapore_elevation_zones.tif"
@@ -499,7 +539,7 @@ def main():
     
     elev_resized = resample_elevation(elev_array, target_shape=(256, 256))
     # print(f"Elevation Array Shape: {elev_resized.shape}")
-    '''
+    
     #lst resize
     lst_array = lst_to_numpy(lst_image, singapore_boundary, scale=1000)
     lst_cnn_ready = resample_lst(lst_array, target_shape=(256, 256))
@@ -511,7 +551,7 @@ def main():
     ndvi_array = lst_to_numpy(ndvi_image, singapore_boundary, scale=1000)
     ndvi_cnn_ready = resample_ndvi(ndvi_array, target_shape=(256, 256))
     #print(f"NDVI array shape: {ndvi_cnn_ready.shape}")
-    '''
+    
     #load URA
     ura_path = "MasterPlan2019LandUselayer.geojson"
     gdf = gpd.read_file(ura_path)
@@ -521,15 +561,20 @@ def main():
 
     #URA map names
     gdf["land_code"] = gdf["Description"].apply(map_landuse)
+    
+    gdfs = gdf[['geometry', 'land_code']].copy()
+    print("Checking:", gdfs.head())
 
     #make landuse map into 2D from 3D, dumps used as to serialise the geometry shape to binary and drop z and loads to rebuild the shape in 2d from binary
+    gdfs['geometry'] = gdfs['geometry'].apply(lambda g: loads(dumps(g, output_dimension=2)))
 
-    gdf['geometry'] = gdf['geometry'].apply(lambda g: loads(dumps(g, output_dimension=2)))
     #has_z is a property of shapely geometry to check if it has z dimension
-    is_now_3d = gdf['geometry'].apply(lambda g: hasattr(g, 'has_z') and g.has_z)
+    is_now_3d = gdfs['geometry'].apply(lambda g: hasattr(g, 'has_z') and g.has_z)
     print("Still 3D geometries after conversion:", is_now_3d.sum())
 
-    '''
+    #saving the file GEOMETRY(2D) AND LAND CODE 
+    gdfs.to_file("landuse_cleaned1.geojson", driver="GeoJSON")
+
     ura_cnn_ready = resample_ura(
     gdf=gdf[["geometry", "land_code"]],
     target_crs=crs,
@@ -575,16 +620,16 @@ def main():
     
 
     #savemap to html
-    '''
-    '''
+    
+    
     html_file = "lst_map.html"
     Map.to_html(html_file)
     print(f"Map has been saved to {html_file}.")
     webbrowser.open(html_file)
-    '''
-    '''Convert to numpy array (old LST)
+
+    Convert to numpy array (old LST)
     #lst_array = lst_to_numpy(lst_image, singapore_boundary)
-    '''
+    
 
     
     #normalize zscore
@@ -592,13 +637,13 @@ def main():
     #detect hotspots
     hotspot_mask = detect_hotspots(z_scores)
 
-    '''
+    
     plt.figure(figsize=(10, 6))
     plt.imshow(hotspot_mask, cmap='hot')
     plt.title('Detected hotspots')
     plt.axis('off')
     plt.show()
-    '''
+    
     #get rainfall data
     rainfall_120h_df = load_rainfall(120)
     bounds = (1.22, 1.48, 103.6, 104.0)
@@ -610,7 +655,7 @@ def main():
     )   
    
     #plotting
-    '''sns.set(style="whitegrid")
+    sns.set(style="whitegrid")
 
     plt.figure(figsize=(10, 6))
     sns.scatterplot(data=rainfall_summary,
@@ -627,8 +672,8 @@ def main():
     plt.legend(title='In Hotspot')
     plt.tight_layout()
     print(plt.show())
-    '''
     
+    '''
     # run_xgboost_pipeline(rainfall_summary)
 
     # stacked_tile = np.stack([lst_tile, ndvi_tile, elev_resized], axis=-1)
