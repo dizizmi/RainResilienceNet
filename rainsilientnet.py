@@ -43,10 +43,27 @@ def tf_wrapper(input_filename, label_filename):
     label_tensor = tf.cast(label_tensor, tf.float32)  #ensure label is float for loss calculation
     return input_tensor, label_tensor
 
-def custom_binaryloss(y_true, y_pred):
-    y_pred = tf.clip_by_value(y_pred, 1e-7, 1 - 1e-7)
-    bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    return tf.reduce_mean(bce)
+def dice_loss(y_true, y_pred, smooth=1e-6): #
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+    y_pred = tf.clip_by_value(y_pred, smooth, 1.0 - smooth)
+
+    intersection = tf.reduce_sum(y_true * y_pred)
+    union = tf.reduce_sum(y_true) + tf.reduce_sum(y_pred)
+
+    dice_coeff = (2. * intersection + smooth) / (union + smooth)
+    loss = 1 - dice_coeff
+    return loss
+
+class MeanIoUCustom(tf.keras.metrics.MeanIoU):
+    def update_state(self, y_true, y_pred, sample_weight = None):
+        y_pred = tf.cast(y_pred > 0.5, tf.int32)
+        y_true =  tf.cast(y_true, tf.int32)
+        return super().update_state(y_true, y_pred, sample_weight)
+
+
+ 
+
 
 def unet_model(input_shape = (patch_size, patch_size, num_channels), num_classes = 2):
     inputs = tf.keras.Input(shape= input_shape)
@@ -89,7 +106,7 @@ def unet_model(input_shape = (patch_size, patch_size, num_channels), num_classes
 
     model = models.Model(inputs=inputs, outputs=outputs)
 
-    model.compile(optimizer='adam', loss=custom_binaryloss, metrics=['accuracy', tf.keras.metrics.MeanIoU(num_classes=num_classes)])
+    model.compile(optimizer='adam', loss=dice_loss, metrics=['accuracy', MeanIoUCustom(num_classes=num_classes)])
 
     return model
 
