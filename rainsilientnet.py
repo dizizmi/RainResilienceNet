@@ -6,9 +6,11 @@ from keras import layers, models, losses, metrics, optimizers
 from keras.models import Model
 from keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, BatchNormalization, Dropout
 from sklearn.model_selection import train_test_split
-from keras import backend as K
+from keras import backend as K #note this K is kinda deprecated 
+from keras.callbacks import EarlyStopping, ModelCheckpoint
 import json
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 
 #LOAD BATCH AND SEGMENTATION BATCHES
 #load the patches 
@@ -55,15 +57,19 @@ def dice_loss(y_true, y_pred, smooth=1e-6): #
     loss = 1 - dice_coeff
     return loss
 
+def focal_loss(y_true, y_pred, alpha=0.25, gamma=2.0):
+    y_pred = tf.clip_by_value(y_pred, K.epsilon(), 1 - K.epsilon())
+    pt = tf.where(tf.equal(y_true, 1), y_pred, 1- y_pred)
+    return tf.reduce_mean(-alpha * tf.pow(1 - pt, gamma) * tf.math.log(pt + K.epsilon()))
+
+def total_loss(y_true, y_pred):
+    return dice_loss(y_true, y_pred) + focal_loss(y_true, y_pred)
+
 class MeanIoUCustom(tf.keras.metrics.MeanIoU):
     def update_state(self, y_true, y_pred, sample_weight = None):
         y_pred = tf.cast(y_pred > 0.5, tf.int32)
         y_true =  tf.cast(y_true, tf.int32)
         return super().update_state(y_true, y_pred, sample_weight)
-
-
- 
-
 
 def unet_model(input_shape = (patch_size, patch_size, num_channels), num_classes = 2):
     inputs = tf.keras.Input(shape= input_shape)
@@ -106,8 +112,6 @@ def unet_model(input_shape = (patch_size, patch_size, num_channels), num_classes
 
     model = models.Model(inputs=inputs, outputs=outputs)
 
-    model.compile(optimizer='adam', loss=dice_loss, metrics=['accuracy', MeanIoUCustom(num_classes=num_classes)])
-
     return model
 
 
@@ -125,19 +129,47 @@ def main():
     input_filenames = [item["input"] for item in metadata]
     label_filenames = [item["label"].replace("input", "label") for item in metadata]
 
-    #create dataset
-    dataset = tf.data.Dataset.from_tensor_slices((input_filenames, label_filenames))
-    dataset = dataset.map(tf_wrapper, num_parallel_calls=tf.data.AUTOTUNE)
-    dataset = dataset.shuffle(buffer_size=100) #full shuffling for randomness = size of dataset
-    dataset = dataset.batch(32).prefetch(tf.data.AUTOTUNE)
 
-    #shape batch shape
+
+    def create_dataset(input_filenames, label_filenames, batch_size=32, shuffle=True):
+        dataset = tf.data.Dataset.from_tensor_slices((input_filenames, label_filenames))
+        dataset = dataset.map(tf_wrapper, num_parallel_calls=tf.data.AUTOTUNE)
+
+        if shuffle:
+            dataset = dataset.shuffle(buffer_size=100) #buffer size = full shuffle for randomness
+        
+        return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+    train_inputs, val_inputs, train_labels, val_labels = train_test_split(
+        input_filenames, label_filenames, test_size=0.2, random_state=42)
+    
+    train_dataset = create_dataset(train_inputs, train_labels, batch_size=32)
+    val_dataset = create_dataset(val_inputs, val_labels, batch_size=32, shuffle=False)
+    
+    model = unet_model(input_shape=(patch_size, patch_size, num_channels))
+
+    model.compile(optimizer='adam', loss=total_loss, metrics=['accuracy', MeanIoUCustom(num_classes=num_classes)])
+    
+    callbacks = [
+        EarlyStopping(patience=5, monitor='val_loss', restore_best_weights=True),
+        ModelCheckpoint('best_model.keras', save_best_only=True, monitor='val_loss')
+    ]
+
+    model.fit(
+        train_dataset,
+        validation_data=val_dataset,
+        epochs=epochs,
+        callbacks=callbacks,
+    )
+
+
+    
+    
+    '''#shape batch shape
     for x_batch, y_batch in dataset.take(1):
         print(f"Input batch shape: {x_batch.shape}")
         print(f"Label batch shape: {y_batch.shape}")
-
-    model = unet_model(input_shape=(patch_size, patch_size, num_channels), num_classes=num_classes)
-
+ 
     #test if the labels are valid
     def validate_labels(label_dir, label_filenames, num_classes=2):
         for filename in label_filenames:
@@ -149,16 +181,14 @@ def main():
     validate_labels(label_dir, label_filenames, num_classes=num_classes)
     print("Total input patches:", len(input_filenames))
     print("Total input patches:", len(label_filenames))
-
+    
     for i in range(3):
         x, y = dataset.take(1).as_numpy_iterator().next()
         print(f"x shape: {x.shape}, y shape: {y.shape}")
         print("Unique labels in y:", np.unique(y))
 
-        
-    model.fit(dataset, epochs=epochs, batch_size=batch_size)
-
-
+    '''
+   
 
     #model.summary()    
     '''
