@@ -11,6 +11,7 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint
 import json
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
+import glob
 
 #LOAD BATCH AND SEGMENTATION BATCHES
 #load the patches 
@@ -129,7 +130,19 @@ def main():
     input_filenames = [item["input"] for item in metadata]
     label_filenames = [item["label"].replace("input", "label") for item in metadata]
 
+    #testing to check imbalance dataset
+    imbalance = sorted(glob.glob("cnn_segmentation_patches/labels/*.npy"))
+    total_pixels = 0
+    flood_pixels = 0
 
+    for f in imbalance:
+        label = np.load(f)
+        total_pixels += label.size
+        flood_pixels += np.sum(label == 1)  #1 is flood class
+
+    print(f"flood pixels ratio: {flood_pixels / total_pixels:.6f}")
+
+    '''
 
     def create_dataset(input_filenames, label_filenames, batch_size=32, shuffle=True):
         dataset = tf.data.Dataset.from_tensor_slices((input_filenames, label_filenames))
@@ -162,7 +175,7 @@ def main():
         callbacks=callbacks,
     )
 
-
+    '''
     
     
     '''#shape batch shape
@@ -231,6 +244,7 @@ def main():
     print("-" * 30)
 
     '''
+
 
 if __name__ == "__main__":
     main()
