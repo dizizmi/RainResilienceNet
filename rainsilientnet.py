@@ -12,6 +12,10 @@ import json
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 import glob
+import shutil #lore- checks to avoid copying file to itself, avoids loading all at once do it in chunks
+import random
+
+
 
 #LOAD BATCH AND SEGMENTATION BATCHES
 #load the patches 
@@ -20,6 +24,51 @@ input_dir  = os.path.join(patch_dir, "inputs")
 label_dir = os.path.join(patch_dir, "labels")
 metadata_dir = os.path.join(patch_dir, "patch_metadata.json")
 
+#filtering the flood patches
+filter_input_dir = "cnn_seg_patch_filtered/inputs"
+filter_label_dir = "cnn_seg_patch_filtered/labels"
+os.makedirs(filter_input_dir, exist_ok=True)
+os.makedirs(filter_label_dir, exist_ok=True)
+threshold = 10 #min number of flood pixels in a patch
+
+kept = 0
+missing = []
+
+#boolean mask where 1 is flooded, 0 is not thus finding the sum of 1s in each patch
+for filename in os.listdir(label_dir):
+    label_path = os.path.join(label_dir, filename)  
+    #see if it is the file since i keep getting error of file not found
+    if not filename.startswith("label_") or not filename.endswith(".npy"):
+        continue
+
+    label_patch = np.load(label_path)
+
+    if np.sum(label_patch ==1) >= threshold:
+
+        input_filename = filename.replace("label", "input")
+        input_path = os.path.join(input_dir, input_filename)
+
+        #check if input file exist
+        if not os.path.exists(input_path):
+            print(f"missing input file: {input_filename}")
+            missing.append(input_filename)
+            continue
+
+        shutil.copy(label_path, os.path.join(filter_label_dir, filename))
+        shutil.copy(input_path, os.path.join(filter_input_dir, input_filename))
+
+        '''
+        shutil.copy(os.path.join(label_dir, filename), os.path.join(filter_label_dir, filename))
+        shutil.copy(os.path.join(input_dir, filename), os.path.join(filter_input_dir, input_filename))
+        '''
+        kept += 1
+print(f"Kept {kept} patches with at least {threshold} flood pixels.")
+if missing:
+    print(f"Missing {len(missing)} input files corresponding to labels.")
+    for f in missing:
+        print(f" - {f}")
+
+#continue loading patches 
 patch_size = 64
 num_channels = 16
 batch_size = 16
@@ -123,24 +172,13 @@ def main():
     label_dir = os.path.join(patch_dir, "labels")
     metadata_dir = os.path.join(patch_dir, "patch_metadata.json")
 
-
+    #this below mighyt be the error loik at tmr 
     with open(metadata_dir, "r") as f:
         metadata = json.load(f)
 
     input_filenames = [item["input"] for item in metadata]
-    label_filenames = [item["label"].replace("input", "label") for item in metadata]
+    label_filenames = [item["label"] for item in metadata]
 
-    #testing to check imbalance dataset
-    imbalance = sorted(glob.glob("cnn_segmentation_patches/labels/*.npy"))
-    total_pixels = 0
-    flood_pixels = 0
-
-    for f in imbalance:
-        label = np.load(f)
-        total_pixels += label.size
-        flood_pixels += np.sum(label == 1)  #1 is flood class
-
-    print(f"flood pixels ratio: {flood_pixels / total_pixels:.6f}")
 
     '''
 
@@ -176,7 +214,21 @@ def main():
     )
 
     '''
-    
+
+    '''
+    #testing to check imbalance dataset
+    imbalance = sorted(glob.glob("cnn_segmentation_patches/labels/*.npy"))
+    total_pixels = 0
+    flood_pixels = 0
+
+    for f in imbalance:
+        label = np.load(f)
+        total_pixels += label.size
+        flood_pixels += np.sum(label == 1)  #1 is flood class
+
+    print(f"flood pixels ratio: {flood_pixels / total_pixels:.6f}")
+
+    '''
     
     '''#shape batch shape
     for x_batch, y_batch in dataset.take(1):
@@ -244,6 +296,7 @@ def main():
     print("-" * 30)
 
     '''
+
 
 
 if __name__ == "__main__":
