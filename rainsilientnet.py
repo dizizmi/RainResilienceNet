@@ -16,7 +16,6 @@ import shutil #lore- checks to avoid copying file to itself, avoids loading all 
 import random
 
 
-
 #LOAD BATCH AND SEGMENTATION BATCHES
 #load the patches 
 patch_dir = "cnn_segmentation_patches"
@@ -24,7 +23,7 @@ input_dir  = os.path.join(patch_dir, "inputs")
 label_dir = os.path.join(patch_dir, "labels")
 metadata_dir = os.path.join(patch_dir, "patch_metadata.json")
 
-#filtering the flood patches
+#filtering the flood patches (at least 10 flood pixels)
 filter_input_dir = "cnn_seg_patch_filtered/inputs"
 filter_label_dir = "cnn_seg_patch_filtered/labels"
 os.makedirs(filter_input_dir, exist_ok=True)
@@ -32,6 +31,8 @@ os.makedirs(filter_label_dir, exist_ok=True)
 threshold = 10 #min number of flood pixels in a patch
 
 kept = 0
+
+#LOAD PATCHES WITH AT LEAST THRESHOLD FLOOD PIXELS
 missing = []
 
 #boolean mask where 1 is flooded, 0 is not thus finding the sum of 1s in each patch
@@ -71,14 +72,14 @@ if missing:
 #continue loading patches 
 patch_size = 64
 num_channels = 16
-batch_size = 16
+batch_size = 4
 num_classes = 2
 epochs = 20
 
 #loading function
 def load_patch(input_filename, label_filename):
-    X = np.load(os.path.join(input_dir, input_filename.decode())).astype(np.float32)
-    y = np.load(os.path.join(label_dir, label_filename.decode()))
+    X = np.load(os.path.join(filter_input_dir, input_filename.decode())).astype(np.float32)
+    y = np.load(os.path.join(filter_label_dir, label_filename.decode()))
     y = np.where(np.isnan(y), 0, y).astype(np.uint8)
     y = np.clip(y, 0, 1)
     #print(f"Unique label values: {np.unique(y)}")
@@ -95,22 +96,37 @@ def tf_wrapper(input_filename, label_filename):
     label_tensor = tf.cast(label_tensor, tf.float32)  #ensure label is float for loss calculation
     return input_tensor, label_tensor
 
-def dice_loss(y_true, y_pred, smooth=1e-6): #
+def create_dataset(input_filename, label_filename, batch_size=(batch_size), shuffle=True):
+    dataset = tf.data.Dataset.from_tensor_slices((input_filename, label_filename))
+    dataset = dataset.map(tf_wrapper, num_parallel_calls=tf.data.AUTOTUNE)
+
+    if shuffle:
+        dataset = dataset.shuffle(buffer_size= len(input_filename)) #buffer size = full shuffle for randomness
+    
+    return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+#loss functions returns nan so 
+def safe_sigmoid(x, epsilon=1e-7):
+    return tf.clip_by_value(tf.nn.sigmoid(x), epsilon, 1 - epsilon)
+
+def dice_loss(y_true, y_pred): 
+    y_pred = safe_sigmoid(y_pred)
     y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
-    y_pred = tf.clip_by_value(y_pred, smooth, 1.0 - smooth)
 
     intersection = tf.reduce_sum(y_true * y_pred)
     union = tf.reduce_sum(y_true) + tf.reduce_sum(y_pred)
 
-    dice_coeff = (2. * intersection + smooth) / (union + smooth)
-    loss = 1 - dice_coeff
-    return loss
+    dice = (2. * intersection + 1e-7) / (union + 1e-7)
+    return 1 - dice 
 
 def focal_loss(y_true, y_pred, alpha=0.25, gamma=2.0):
-    y_pred = tf.clip_by_value(y_pred, K.epsilon(), 1 - K.epsilon())
-    pt = tf.where(tf.equal(y_true, 1), y_pred, 1- y_pred)
-    return tf.reduce_mean(-alpha * tf.pow(1 - pt, gamma) * tf.math.log(pt + K.epsilon()))
+    y_pred = safe_sigmoid(y_pred)
+    y_true = tf.cast(y_true, tf.float32)
+    
+    bce = - (alpha * y_true * tf.math.log(y_pred + 1e-7) + (1 - alpha) * (1 - y_true) * tf.math.log(1 - y_pred + 1e-7))
+
+    f1 = tf.pow(1- y_pred, gamma) * bce
+    return tf.reduce_mean(f1)
 
 def total_loss(y_true, y_pred):
     return dice_loss(y_true, y_pred) + focal_loss(y_true, y_pred)
@@ -167,35 +183,28 @@ def unet_model(input_shape = (patch_size, patch_size, num_channels), num_classes
 
 def main():
 
-    patch_dir = "cnn_segmentation_patches"
+    patch_dir = "cnn_seg_patch_filtered"
     input_dir  = os.path.join(patch_dir, "inputs")
     label_dir = os.path.join(patch_dir, "labels")
     metadata_dir = os.path.join(patch_dir, "patch_metadata.json")
-
-    #this below mighyt be the error loik at tmr 
-    with open(metadata_dir, "r") as f:
-        metadata = json.load(f)
-
-    input_filenames = [item["input"] for item in metadata]
-    label_filenames = [item["label"] for item in metadata]
-
-
-    '''
-
-    def create_dataset(input_filenames, label_filenames, batch_size=32, shuffle=True):
-        dataset = tf.data.Dataset.from_tensor_slices((input_filenames, label_filenames))
-        dataset = dataset.map(tf_wrapper, num_parallel_calls=tf.data.AUTOTUNE)
-
-        if shuffle:
-            dataset = dataset.shuffle(buffer_size=100) #buffer size = full shuffle for randomness
-        
-        return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-
-    train_inputs, val_inputs, train_labels, val_labels = train_test_split(
-        input_filenames, label_filenames, test_size=0.2, random_state=42)
     
-    train_dataset = create_dataset(train_inputs, train_labels, batch_size=32)
-    val_dataset = create_dataset(val_inputs, val_labels, batch_size=32, shuffle=False)
+    #prepare for training and validation split
+    random.seed(42)
+
+    all_filenames = [f for f in os.listdir(filter_label_dir) if f.endswith('.npy')]
+    random.shuffle(all_filenames)
+
+    train_filename, val_filename = train_test_split(all_filenames, test_size=0.2, random_state=42)
+
+
+    #load metadata
+    train_inputs = ['input_' + f.split('_')[1] for f in train_filename]
+    val_inputs = ['input_' + f.split('_')[1] for f in val_filename]
+
+    
+    train_dataset = create_dataset(train_inputs, train_filename)
+    val_dataset = create_dataset(val_inputs, val_filename, shuffle=False)
+
     
     model = unet_model(input_shape=(patch_size, patch_size, num_channels))
 
@@ -213,7 +222,6 @@ def main():
         callbacks=callbacks,
     )
 
-    '''
 
     '''
     #testing to check imbalance dataset
@@ -228,9 +236,7 @@ def main():
 
     print(f"flood pixels ratio: {flood_pixels / total_pixels:.6f}")
 
-    '''
-    
-    '''#shape batch shape
+    #shape batch shape
     for x_batch, y_batch in dataset.take(1):
         print(f"Input batch shape: {x_batch.shape}")
         print(f"Label batch shape: {y_batch.shape}")
@@ -251,53 +257,7 @@ def main():
         x, y = dataset.take(1).as_numpy_iterator().next()
         print(f"x shape: {x.shape}, y shape: {y.shape}")
         print("Unique labels in y:", np.unique(y))
-
     '''
-   
-
-    #model.summary()    
-    '''
-    patch_folder = "cnn_patches"
-
-    cnn_patches = sorted([
-    os.path.join(patch_folder, f) 
-    for f in os.listdir(patch_folder) 
-    if f.endswith(".npy")
-    ])
-
-    '''
-   # X = np.stack([np.load(f) for f in cnn_patches])
-
-    # y = np.array([1] * 8 + [0] * 8)  # dummy binary labels
-
-
-    # cnn_flood_model = build_cnn_model(output_type='classification')
-
-   # X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
-
-    #cnn_flood_model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10)
-
-   #below suposed to be after shape batch shape
-    '''
-    #seeing the patch shapes
-    sample_inputs = sorted(os.listdir(input_dir))[:3]
-    sample_labels = sorted(os.listdir(label_dir))[:3]
-
-    for i, (inp_file, lbl_file) in enumerate(zip(sample_inputs, sample_labels)):
-    inp_path = os.path.join(input_dir, inp_file)
-    lbl_path = os.path.join(label_dir, lbl_file)
-
-    inp = np.load(inp_path)
-    lbl = np.load(lbl_path)
-
-    print(f"sample {i+1}:")
-    print(f"  Input shape: {inp.shape}")
-    print(f"  Label shape: {lbl.shape}")
-    print("-" * 30)
-
-    '''
-
-
 
 if __name__ == "__main__":
     main()
