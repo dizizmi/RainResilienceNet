@@ -312,8 +312,10 @@ def detect_hotspots(z_scores, threshold=1.5):
     return hotspots
 
 #NEA rainfall and weather station coordinates in 120H (5 DAYS) till PRESENT, thinking if it should be shorter...? ~3h-24?
-def load_rainfall(hours=120):
+#update: made in 2 years so that it can trained on more data, saved as csv already
+def load_rainfall(start_date="2023-09-01", end_date="2025-09-01", pause=0.5):
     base_url = "https://api.data.gov.sg/v1/environment/rainfall"
+    print("LOADING RAINFALL DATA")
     
     #first fetch station metadata
     station_meta_resp = requests.get(base_url)
@@ -327,11 +329,18 @@ def load_rainfall(hours=120):
         'lon': s['location']['longitude']
     } for s in station_meta}
 
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    current_dt = end_dt
+
     rainfall_records = []
 
+    total_hours = int((end_dt - start_dt).total_seconds() / 3600)
+    print(f"Total hours to fetch: {total_hours}")
+
     #get rainfall data
-    for i in range(hours):
-        timestamp = (datetime.utcnow() - timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%S")
+    for i in range(total_hours):
+        timestamp = (end_dt- timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M:%S")
 
         try:
             r = requests.get(base_url, params={"date_time": timestamp})
@@ -355,22 +364,16 @@ def load_rainfall(hours=120):
         except Exception as e:
             print(f"Error at {timestamp}: {e}")
 
-        time.sleep(0.1)  # avoid overloading API   
-    return pd.DataFrame(rainfall_records)
+        if i % 50 == 0:
+            print(f"Fetched {i}/{total_hours} hours...")
 
-def rainfall_raster(latlons, z_scores, hotspot_mask, bounds):
+        time.sleep(pause)  #avoid overloading API   
 
-    #zcoring for rainfall data
-    '''convert latitude and longt to row col for raster array for pixel coordinates'''
-    def rainfall_to_pixel(lat, lon, bounds, array_shape):
+    rain_df = pd.DataFrame(rainfall_records)
+    rain_df.to_csv("rainfall_2yr_hourly.csv", index=False)
 
-        lat_min, lat_max, lon_min, lon_max = bounds
-        height, width = array_shape
-
-        row = int((lat_max - lat) / (lat_max - lat_min) * height)
-        col = int((lon - lon_min) / (lon_max - lon_min) * width)
-        return row, col
-    
+    #print("saved file to rainfall_2yr_hourly.csv")
+    return rain_df
     samples = []
 
     for lat, lon in latlons:
@@ -642,7 +645,21 @@ def main():
     plt.imshow(hotspot_mask, cmap='hot')
     plt.title('Detected hotspots')
     plt.axis('off')
-    plt.show()
+    #load rainfall data
+    rainfall_df = load_rainfall()
+
+    '''@@@@@@@@@@@@@
+    #PREPARING FOR RAINFALL PATCH 
+    lst_z, lst_raw, bounds = compute_lst_zscore("LST_aligned_mask.tif")
+
+    rainfall_df = load_rainfall(hours=120)
+    z_scores, bounds, transform = lst_raster_to_zscore_array("LST_aligned_mask.tif")
+
+    rainfall_with_lst = prepare_spatial_temporal_df(rainfall_df, z_scores, transform)
+    rainfall_sequences = create_temporal_sequences(rainfall_df, hours_windows=6)
+    #rainfall_df.to_csv("rainfall_with_lst.csv", index=False)
+    @@@@@@@@@@@@@@'''
+    '''
     
     #get rainfall data
     rainfall_120h_df = load_rainfall(120)
