@@ -1,50 +1,52 @@
 import ee
 import geemap
+import numpy as np, pandas as pd, rasterio, re, json, os
+from glob import glob
+from rasterio.warp import reproject, Resampling
+from rasterio.transform import rowcol
+from pyproj import Transformer
+from datetime import datetime, timedelta
+
+#generating daily LST images for Singapore from MODIS LST but realised modis lst is 8 day everaged
+ee.Initialize(project='ee-alyshabm000')
+
+singapore = ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level1") \
+    .filter(ee.Filter.eq('ADM0_NAME', 'Singapore'))
+
+start_date = '2025-01-01'
+end_date = '2025-09-01'
+
+modis = ee.ImageCollection('MODIS/061/MOD11A1') \
+    .filterBounds(singapore) \
+    .filterDate(start_date, end_date) \
+    .select('LST_Day_1km')
+
+
+def export_image(img):
+    date_str = ee.Date(img.get('system:time_start')).format('YYYY_MM_dd').getInfo()
+    img_scaled = img.multiply(0.02).subtract(273.15).rename('LST_Celsius')
+
+    task = ee.batch.Export.image.toDrive(
+        image=img_scaled.clip(singapore),
+        description=f'LST_MODIS_{date_str}',
+        folder='LST_Daily',
+        fileNamePrefix=f'LST_MODIS_{date_str}',
+        region=singapore.geometry(),
+        scale=1000,
+        maxPixels=1e13
+    )
+    task.start()
+    print(f"Started task: LST_MODIS_{date_str}")
 
 def main():
 
-    ee.Initialize(project='ee-alyshabm000')
-    singapore_boundary = ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level1").filter(ee.Filter.eq('ADM0_NAME', 'Singapore'))
+    img_list = modis.toList(modis.size())
+    n = img_list.size().getInfo()
 
-    elev = ee.Image("NASA/NASADEM_HGT/001").select('elevation').clip(singapore_boundary)
-
-    Map = geemap.Map()
-    Map.centerObject(singapore_boundary, 10)
-
-    zone1 = elev.gte(0).And(elev.lt(10)).multiply(1)
-    zone2 = elev.gte(10).And(elev.lt(30)).multiply(2)
-    zone3 = elev.gte(30).And(elev.lt(60)).multiply(3)
-    zone4 = elev.gte(60).And(elev.lt(100)).multiply(4)
-    zone5 = elev.gte(100).And(elev.lte(165)).multiply(5)
-
-    # Combine all zones
-    elevation_zones = zone1.add(zone2).add(zone3).add(zone4).add(zone5)
-
-    # Visualize by zone number
-    zone_vis = {
-        'min': 1,
-        'max': 5,
-        'palette': ['#0000ff', '#00ff00', '#ffff00', '#ffa500', '#8b0000']
-    }
-
-    Map = geemap.Map()
-    Map.centerObject(singapore_boundary, 10)
-    Map.addLayer(elevation_zones, zone_vis, "Elevation Zones")
-
-    Map.add_legend(
-        title="Elevation Zones (m)",
-        labels=[
-            '0–10 (Very Low)',
-            '10–30 (Low)',
-            '30–60 (Moderate)',
-            '60–100 (High)',
-            '100–165 (Very High)'
-        ],
-        colors=['#0000ff', '#00ff00', '#ffff00', '#ffa500', '#8b0000']
-    )
-
-    Map.to_html("singapore_dem_map3.html")
-
+    for i in range(n):
+        image = ee.Image(img_list.get(i))
+        export_image(image)
+  
 if __name__ == '__main__':
     main()
   
