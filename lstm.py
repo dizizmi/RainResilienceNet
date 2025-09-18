@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import re
 
 import sklearn
 from sklearn.preprocessing import StandardScaler
@@ -17,6 +18,7 @@ horizon = 0
 batch = 256
 epochs = 50  
 
+df['timestamp'] = pd.to_datetime(df['timestamp'])
 
 #timesplit
 train_end = pd.Timestamp("2024-12-31 23:00:00")
